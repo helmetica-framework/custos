@@ -1,0 +1,6 @@
+resources:
+- bases/arcana.helmetica.io_arcana.yaml
+#+kubebuilder:scaffold:crdkustomizeresource
+
+configurations:
+- kustomizeconfig.yaml
