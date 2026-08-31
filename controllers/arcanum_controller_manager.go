@@ -17,8 +17,6 @@ import (
 )
 
 const (
-	fieldOwner = client.FieldOwner("custos")
-
 	readyMessage     = "nothing to guard yet"
 	suspendedMessage = "reconciliation suspended"
 )

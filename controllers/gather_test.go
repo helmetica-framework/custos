@@ -148,6 +148,35 @@ func TestGatherJob_RunsAsInstanceAdminWithNoRetries(t *testing.T) {
 		*job.Spec.Template.Spec.Containers[0].Image)
 }
 
+// The Job cannot find the Arcanum on its own, so anything it has to stamp on
+// what it writes travels in the args. Without the name the gathered Secret
+// misses the label the manager cache selects on, and the controller reads it
+// back as NotFound.
+func TestGatherJob_PassesTheArcanumToTheBinary(t *testing.T) {
+	plan, err := buildPlan(gatherMapping(), testMetadata())
+	require.NoError(t, err)
+	m, _ := newManager()
+
+	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+
+	require.Len(t, job.Spec.Template.Spec.Containers, 1)
+	args := job.Spec.Template.Spec.Containers[0].Args
+
+	assert.Equal(t, "sample", argValue(args, "--arcanum"))
+	assert.Equal(t, string(arcanumUID), argValue(args, "--arcanum-uid"))
+}
+
+// argValue returns what follows flag in a container's args.
+func argValue(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+
+	return ""
+}
+
 // Gather Jobs left over from a previous plan are deleted by listing on this
 // label. Without it there is no way to find them.
 func TestGatherJob_CarriesTheArcanumLabel(t *testing.T) {

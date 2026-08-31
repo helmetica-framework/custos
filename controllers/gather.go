@@ -220,6 +220,8 @@ func (r *ArcanumManager) gatherJob(
 			"--plan", path.Join(gatherPlanMountPath, gatherPlanFileName),
 			"--secret", gatheredSecretName(name),
 			"--result", gatherResultConfigMapName(name),
+			"--arcanum", name,
+			"--arcanum-uid", string(arcanum.GetUID()),
 		).
 		WithVolumeMounts(corev1ac.VolumeMount().
 			WithName(gatherPlanVolumeName).

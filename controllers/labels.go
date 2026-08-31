@@ -1,10 +1,15 @@
 package controllers
 
-// The labels custos stamps on everything it owns. They live in their own file
-// because the gather Job and the target Secret both carry them, and the two
-// are built in different files.
+import "github.com/helmetica-framework/custos/gather"
+
+// The labels custos stamps on everything it owns, and the owner name for
+// every apply. They are defined in gather because the Job writes objects
+// carrying them too, and named again here because most of the controller has
+// no other reason to know that package.
 const (
-	arcanumNameLabel      = "custos.helmetica.io/arcanum-name"
-	arcanumNamespaceLabel = "custos.helmetica.io/arcanum-namespace"
-	arcanumUIDLabel       = "custos.helmetica.io/arcanum-uid"
+	arcanumNameLabel      = gather.ArcanumNameLabel
+	arcanumNamespaceLabel = gather.ArcanumNamespaceLabel
+	arcanumUIDLabel       = gather.ArcanumUIDLabel
+
+	fieldOwner = gather.FieldOwner
 )

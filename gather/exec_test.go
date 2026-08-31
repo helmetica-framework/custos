@@ -5,10 +5,13 @@ import (
 	"errors"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
 type fakeExecutor struct {
@@ -116,4 +119,79 @@ func TestResolve_ExecFailureNamesTheKey(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DATABASE")
+}
+
+func resultKey() types.NamespacedName {
+	return types.NamespacedName{Name: "sample-gather-result", Namespace: testNamespace}
+}
+
+func TestWriteResult_SuccessRecordsOK(t *testing.T) {
+	c := newResolver().Client
+
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil, nil)
+
+	require.NoError(t, err)
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), resultKey(), got))
+	assert.Equal(t, ResultStatusOK, got.Data[ResultStatusKey])
+}
+
+// This message is the only thing the controller has to report a failure with,
+// since it never reads the Job's log.
+func TestWriteResult_FailureRecordsTheMessage(t *testing.T) {
+	c := newResolver().Client
+
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil,
+		errors.New(`key "USERNAME": getting Secret "postgres-poc-app": not found`))
+
+	require.NoError(t, err)
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), resultKey(), got))
+	assert.Equal(t, ResultStatusError, got.Data[ResultStatusKey])
+	assert.Contains(t, got.Data[ResultMessageKey], "postgres-poc-app")
+}
+
+// A refreshed gather reuses the ConfigMap name, so a stale error left next to
+// a fresh success would have the controller reporting a failure that is over.
+func TestWriteResult_OverwritesAnEarlierResult(t *testing.T) {
+	c := newResolver().Client
+	ctx := context.Background()
+
+	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, errors.New("boom")))
+	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, nil))
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, resultKey(), got))
+	assert.Equal(t, ResultStatusOK, got.Data[ResultStatusKey])
+	assert.Empty(t, got.Data[ResultMessageKey])
+}
+
+// Deleting the Arcanum has to take the result ConfigMap with it. The Job is
+// the only process that ever writes this object, so it is the only one that
+// can put the reference on.
+func TestWriteResult_CarriesTheOwnerReference(t *testing.T) {
+	c := newResolver().Client
+	owner := metav1ac.OwnerReference().
+		WithAPIVersion("arcana.helmetica.io/v1").
+		WithKind("Arcanum").
+		WithName("sample").
+		WithUID(types.UID("d6f7a1b2-0000-4000-8000-000000000001")).
+		WithController(true)
+
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, owner, nil)
+
+	require.NoError(t, err)
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), resultKey(), got))
+	require.Len(t, got.OwnerReferences, 1)
+	assert.Equal(t, "sample", got.OwnerReferences[0].Name)
+	assert.True(t, *got.OwnerReferences[0].Controller)
+
+	// Setting it needs update on the owner's finalizers subresource, which
+	// the admin ClusterRole does not cover for a custom kind.
+	assert.Nil(t, got.OwnerReferences[0].BlockOwnerDeletion,
+		"blockOwnerDeletion would have the API server reject the whole write")
 }
