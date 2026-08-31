@@ -162,16 +162,14 @@ func gatheredSecretName(arcanumName string) string {
 // derivedName joins the Arcanum's name to a suffix saying what the object is
 // for, and keeps the result inside the 63 characters a DNS label allows.
 //
-// An Arcanum name can already be 63 characters, so any suffix at all can push
-// it over, and the API server rejects the name rather than shortening it. The
-// room comes out of the Arcanum's part, never the suffix, because the suffix
-// is the only thing saying which of the four objects this is.
+// An Arcanum name can already be 63 characters, so any suffix can push it
+// over and the API server rejects the name rather than shortening it. The
+// room comes out of the Arcanum's part, since the suffix is the only thing
+// saying which of the four objects this is.
 //
-// The trailing hash is what stops two Arcana that share a long prefix from
-// landing on one name. In the same namespace that would have them fighting
-// over a single gathered Secret, each overwriting the other's credentials on
-// every reconcile. This is the same shape chrysopoeia uses when it derives an
-// instance namespace name.
+// The trailing hash keeps two Arcana that share a long prefix off one name.
+// In a single namespace that would be two services overwriting each other's
+// credentials in one Secret on every reconcile.
 func derivedName(arcanumName, suffix string) string {
 	name := arcanumName + "-" + suffix
 	if len(name) <= dnsLabelMax {

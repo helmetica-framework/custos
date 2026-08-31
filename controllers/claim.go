@@ -29,16 +29,13 @@ const (
 // claim to point at and writes its Secret next to the service.
 //
 // InstanceNamespace and ArcanumName are filled in every case, claim or not.
-// They are the metadata a template can reach even when there is no claim, so
-// returning a bare metadata{} on the way out would strip a helm install of
-// the only two names it has.
+// They are the only metadata a helm install has.
 //
 // A namespace carrying some of the four annotations but not all of them is an
-// error, and the error names the one that is missing. Chryso writes the four
-// together, so a partial set means somebody edited them by hand or chryso
-// changed under us. Guessing would send claimObject after an empty kind, and
-// that surfaces as a confusing lookup failure rather than as the half-stamped
-// namespace it really is.
+// error naming the ones that are missing. Chryso writes the four together, so
+// a partial set means they were edited by hand. Carrying on would look up a
+// claim with an empty kind, and that failure reads as a broken lookup rather
+// than as the half-stamped namespace it is.
 func (r *ArcanumManager) instanceContext(ctx context.Context, arcanum *arcanav1.Arcanum) (metadata, bool, error) {
 	md := metadata{
 		InstanceNamespace: arcanum.GetNamespace(),
@@ -93,11 +90,8 @@ func (r *ArcanumManager) instanceContext(ctx context.Context, arcanum *arcanav1.
 // claimObject fetches the claim CR named by the metadata. Its GVK comes from
 // md.ClaimAPIVersion and md.ClaimKind, which are only known at runtime.
 //
-// The get must go through APIReader, never Client. A cached read of a runtime
-// kind would start an informer for every claim kind in the cluster. Nothing in
-// the test suite catches a slip back to Client on its own, because newManager
-// points both readers at one fake client, so the test that pins this has to
-// hand them different contents.
+// The get goes through APIReader, never Client. A cached read of a runtime
+// kind would start an informer for every claim kind in the cluster.
 func (r *ArcanumManager) claimObject(ctx context.Context, md metadata) (*unstructured.Unstructured, error) {
 	claim := &unstructured.Unstructured{}
 
