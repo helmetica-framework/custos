@@ -72,7 +72,7 @@ func sortedEntries(entries []Entry) []Entry {
 func (p Plan) Marshal() ([]byte, error) {
 	entries := sortedEntries(p.Entries)
 
-	out, err := json.MarshalIndent(entries, "", "  ")
+	out, err := json.MarshalIndent(Plan{Namespace: p.Namespace, Entries: entries}, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshalling plan: %w", err)
 	}

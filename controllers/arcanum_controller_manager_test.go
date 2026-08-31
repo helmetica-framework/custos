@@ -68,10 +68,14 @@ func newManager(objs ...client.Object) (*ArcanumManager, client.Client) {
 		WithObjects(objs...).
 		Build()
 
+	// APIReader is the same fake client here. In production it is the
+	// manager's uncached reader, so anything relying on the two differing
+	// will pass in a test and fail in a cluster.
 	return &ArcanumManager{
-		Client: c,
-		Scheme: scheme,
-		Log:    logr.Discard(),
+		Client:    c,
+		APIReader: c,
+		Scheme:    scheme,
+		Log:       logr.Discard(),
 	}, c
 }
 

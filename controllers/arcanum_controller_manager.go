@@ -26,9 +26,13 @@ const (
 // ArcanumManager reconciles Arcanum objects.
 type ArcanumManager struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
-	Log      logr.Logger
+	// APIReader bypasses the cache. Reads that must not be served stale, and
+	// reads of kinds custos has no business starting an informer for, go
+	// through it rather than through Client.
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Recorder  events.EventRecorder
+	Log       logr.Logger
 }
 
 type phase struct {
