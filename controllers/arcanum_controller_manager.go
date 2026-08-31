@@ -30,9 +30,12 @@ type ArcanumManager struct {
 	// reads of kinds custos has no business starting an informer for, go
 	// through it rather than through Client.
 	APIReader client.Reader
-	Scheme    *runtime.Scheme
-	Recorder  events.EventRecorder
-	Log       logr.Logger
+	// GatherImage is the custos image the gather Job runs. It is the same
+	// binary as the controller, invoked as `custos gather`.
+	GatherImage string
+	Scheme      *runtime.Scheme
+	Recorder    events.EventRecorder
+	Log         logr.Logger
 }
 
 type phase struct {
