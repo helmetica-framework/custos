@@ -46,12 +46,24 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.helmetica-framework.custos.api.v1.ArcanumSpec
   map:
     fields:
+    - name: credentials
+      type:
+        namedType: com.github.helmetica-framework.custos.api.v1.CredentialsSpec
     - name: suspend
       type:
         scalar: boolean
+    - name: target
+      type:
+        namedType: com.github.helmetica-framework.custos.api.v1.TargetSpec
 - name: com.github.helmetica-framework.custos.api.v1.ArcanumStatus
   map:
     fields:
+    - name: gatherJobName
+      type:
+        scalar: string
+    - name: gatheredHash
+      type:
+        scalar: string
     - name: message
       type:
         scalar: string
@@ -61,6 +73,65 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: phase
       type:
         namedType: com.github.helmetica-framework.custos.api.v1.ArcanumPhase
+    - name: secretName
+      type:
+        scalar: string
+    - name: secretNamespace
+      type:
+        scalar: string
+- name: com.github.helmetica-framework.custos.api.v1.CredentialsSpec
+  map:
+    fields:
+    - name: valueMapping
+      type:
+        map:
+          elementType:
+            namedType: com.github.helmetica-framework.custos.api.v1.ValueSource
+- name: com.github.helmetica-framework.custos.api.v1.SourceType
+  scalar: string
+- name: com.github.helmetica-framework.custos.api.v1.TargetSpec
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+- name: com.github.helmetica-framework.custos.api.v1.ValueSource
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+      default: v1
+    - name: command
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: container
+      type:
+        scalar: string
+    - name: key
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+    - name: path
+      type:
+        scalar: string
+    - name: podSelector
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+    - name: source
+      type:
+        namedType: com.github.helmetica-framework.custos.api.v1.SourceType
+    - name: value
+      type:
+        scalar: string
 - name: io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1
   map:
     elementType:
@@ -73,6 +144,38 @@ var schemaYAML = typed.YAMLObject(`types:
         elementType:
           namedType: __untyped_deduced_
         elementRelationship: separable
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+  map:
+    fields:
+    - name: matchExpressions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+          elementRelationship: atomic
+    - name: matchLabels
+      type:
+        map:
+          elementType:
+            scalar: string
+    elementRelationship: atomic
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: operator
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+    - name: values
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
 - name: io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsEntry
   map:
     fields:

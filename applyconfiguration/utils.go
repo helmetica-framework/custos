@@ -22,6 +22,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1.ArcanumSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ArcanumStatus"):
 		return &apiv1.ArcanumStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CredentialsSpec"):
+		return &apiv1.CredentialsSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("TargetSpec"):
+		return &apiv1.TargetSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ValueSource"):
+		return &apiv1.ValueSourceApplyConfiguration{}
 
 	}
 	return nil

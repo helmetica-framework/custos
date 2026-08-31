@@ -14,6 +14,18 @@ type ArcanumStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Message explains a Pending or Failed phase.
 	Message *string `json:"message,omitempty"`
+	// GatheredHash is the hash of the plan the gathered values in hand came
+	// from. A later reconcile computing the same hash knows it can skip the
+	// Job, which is what keeps an exec that provisions from running twice.
+	GatheredHash *string `json:"gatheredHash,omitempty"`
+	// GatherJobName is the Job custos is currently waiting on. It is recorded
+	// so an operator chasing a stuck arcanum has somewhere to read logs.
+	GatherJobName *string `json:"gatherJobName,omitempty"`
+	// SecretName is the Secret custos wrote.
+	SecretName *string `json:"secretName,omitempty"`
+	// SecretNamespace is where that Secret landed. It is reported because the
+	// placement rule is not something a user should have to re-derive.
+	SecretNamespace *string `json:"secretNamespace,omitempty"`
 }
 
 // ArcanumStatusApplyConfiguration constructs a declarative configuration of the ArcanumStatus type for use with
@@ -43,5 +55,37 @@ func (b *ArcanumStatusApplyConfiguration) WithObservedGeneration(value int64) *A
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *ArcanumStatusApplyConfiguration) WithMessage(value string) *ArcanumStatusApplyConfiguration {
 	b.Message = &value
+	return b
+}
+
+// WithGatheredHash sets the GatheredHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GatheredHash field is set to the value of the last call.
+func (b *ArcanumStatusApplyConfiguration) WithGatheredHash(value string) *ArcanumStatusApplyConfiguration {
+	b.GatheredHash = &value
+	return b
+}
+
+// WithGatherJobName sets the GatherJobName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GatherJobName field is set to the value of the last call.
+func (b *ArcanumStatusApplyConfiguration) WithGatherJobName(value string) *ArcanumStatusApplyConfiguration {
+	b.GatherJobName = &value
+	return b
+}
+
+// WithSecretName sets the SecretName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SecretName field is set to the value of the last call.
+func (b *ArcanumStatusApplyConfiguration) WithSecretName(value string) *ArcanumStatusApplyConfiguration {
+	b.SecretName = &value
+	return b
+}
+
+// WithSecretNamespace sets the SecretNamespace field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SecretNamespace field is set to the value of the last call.
+func (b *ArcanumStatusApplyConfiguration) WithSecretNamespace(value string) *ArcanumStatusApplyConfiguration {
+	b.SecretNamespace = &value
 	return b
 }
