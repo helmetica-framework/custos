@@ -13,11 +13,16 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/multierr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -26,12 +31,14 @@ import (
 	//+kubebuilder:scaffold:imports
 	arcanav1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/controllers"
+	"github.com/helmetica-framework/custos/gather"
 )
 
 var (
 	metricsAddr          string
 	enableLeaderElection bool
 	probeAddr            string
+	gatherImage          string
 	zapOpts              = zap.Options{
 		Development: true,
 	}
@@ -46,6 +53,8 @@ func init() {
 
 	controllerCmd.Flags().StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	controllerCmd.Flags().StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	controllerCmd.Flags().StringVar(&gatherImage, "gather-image", "",
+		"Image the gather Jobs run. It is the same binary as the controller, invoked as 'custos gather'.")
 	controllerCmd.Flags().BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -87,6 +96,13 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 	if err := multierr.Combine(cnerr, mcperr, mcnerr, mckerr, smerr); err != nil {
 		return fmt.Errorf("failed to get flags: %w", err)
+	}
+
+	// Checked here rather than left to the Job, because a Job with no image
+	// only fails the first time somebody needs a credential gathered, which
+	// can be long after the deployment looked healthy.
+	if gatherImage == "" {
+		return fmt.Errorf("--gather-image is required")
 	}
 
 	cmd.Println(
@@ -133,6 +149,11 @@ func runController(cmd *cobra.Command, _ []string) error {
 		})
 	}
 
+	arcanumLabelExists, err := labels.NewRequirement(gather.ArcanumNameLabel, selection.Exists, nil)
+	if err != nil {
+		return fmt.Errorf("building the secret cache selector: %w", err)
+	}
+
 	restConf := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
 		Scheme:                 scheme,
@@ -142,6 +163,15 @@ func runController(cmd *cobra.Command, _ []string) error {
 		LeaderElectionID:       "custos.arcana.helmetica.io",
 
 		LeaderElectionReleaseOnCancel: true,
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				// Caching every Secret in the cluster is a lot of memory for
+				// nothing. Custos only ever watches Secrets it stamped.
+				&corev1.Secret{}: {
+					Label: labels.SelectorFromSet(labels.Set{}).Add(*arcanumLabelExists),
+				},
+			},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("unable to start manager: %w", err)
@@ -150,10 +180,12 @@ func runController(cmd *cobra.Command, _ []string) error {
 	lifetimeCtx := cmd.Context()
 
 	am := controllers.ArcanumManager{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("arcanum-controller"),
-		Log:      mgr.GetLogger().WithName("arcanum-controller"),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorder("arcanum-controller"),
+		Log:         mgr.GetLogger().WithName("arcanum-controller"),
+		APIReader:   mgr.GetAPIReader(),
+		GatherImage: gatherImage,
 	}
 
 	if err := am.SetupWithManager("arcanum", mgr); err != nil {

@@ -1,0 +1,16 @@
+# Claim kinds are CRDs chrysopoeia generates at runtime, so they cannot be
+# named in a static role. Chryso keeps this ClusterRole in step with every
+# managed CRD, which is why custos binds to it instead of using a wildcard.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: claim-reader-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chrysopoeia-dynamic-crds-view
+subjects:
+- kind: ServiceAccount
+  name: controller-manager
+  namespace: system
+

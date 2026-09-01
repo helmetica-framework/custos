@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -9,9 +10,13 @@ import (
 	"slices"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	batchv1ac "k8s.io/client-go/applyconfigurations/batch/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	arcanav1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/gather"
@@ -35,6 +40,10 @@ const (
 	// dnsLabelMax is what a Kubernetes object name that has to be a DNS label
 	// gets to spend.
 	dnsLabelMax = 63
+
+	// refreshAnnotation re-runs a gather on demand. Its value is hashed into
+	// the Job name, so changing it is what makes the Job a different Job.
+	refreshAnnotation = "custos.helmetica.io/refresh"
 
 	gatherSuffix         = "gather"
 	gatherResultSuffix   = "gather-result"
@@ -241,4 +250,119 @@ func (r *ArcanumManager) gatherJob(
 							WithType(corev1.SeccompProfileTypeRuntimeDefault))).
 					WithContainers(container).
 					WithVolumes(volume))))
+}
+
+// gatherPlanConfigMap holds the plan the Job reads off its volume. The key is
+// the file name the container mounts, so the two have to agree.
+func gatherPlanConfigMap(arcanum *arcanav1.Arcanum, plan gather.Plan) (*corev1ac.ConfigMapApplyConfiguration, error) {
+	raw, err := plan.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("marshalling plan: %w", err)
+	}
+
+	return corev1ac.ConfigMap(gatherPlanConfigMapName(arcanum.GetName()), arcanum.GetNamespace()).
+		WithLabels(ownershipLabels(arcanum)).
+		WithOwnerReferences(controllerRef(arcanum)).
+		WithData(map[string]string{gatherPlanFileName: string(raw)}), nil
+}
+
+// startGather writes the plan and then the Job that reads it. The order
+// matters: a Job scheduled before its ConfigMap exists sits in
+// ContainerCreating until the kubelet retries.
+func (r *ArcanumManager) startGather(ctx context.Context, arcanum *arcanav1.Arcanum, plan gather.Plan, hash string) error {
+	cm, err := gatherPlanConfigMap(arcanum, plan)
+	if err != nil {
+		return err
+	}
+
+	if err := r.Apply(ctx, cm, fieldOwner, client.ForceOwnership); err != nil {
+		return fmt.Errorf("applying plan ConfigMap: %w", err)
+	}
+
+	if err := r.Apply(ctx, r.gatherJob(arcanum, plan, hash), fieldOwner, client.ForceOwnership); err != nil {
+		return fmt.Errorf("applying gather Job: %w", err)
+	}
+
+	return nil
+}
+
+// deleteStaleGatherJobs removes this Arcanum's gather Jobs other than keep.
+//
+// A Job's spec is immutable, so a changed plan is a new Job under a new name
+// rather than an edit. Without this every spec change would leave another one
+// behind until the namespace is full of them.
+func (r *ArcanumManager) deleteStaleGatherJobs(ctx context.Context, arcanum *arcanav1.Arcanum, keep string) error {
+	jobs := &batchv1.JobList{}
+
+	err := r.List(ctx, jobs,
+		client.InNamespace(arcanum.GetNamespace()),
+		client.MatchingLabels{arcanumNameLabel: arcanum.GetName()})
+	if err != nil {
+		return fmt.Errorf("listing gather jobs: %w", err)
+	}
+
+	for _, job := range jobs.Items {
+		if job.GetName() == keep {
+			continue
+		}
+
+		// Background propagation, or the Job goes and its pods stay.
+		err := r.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting gather job %s: %w", job.GetName(), err)
+		}
+	}
+
+	return nil
+}
+
+// gatheredValues reads what the Job left behind. The second return says
+// whether the Secret was there at all, which is a state and not an error: it
+// is how a gather that has not run yet looks.
+func (r *ArcanumManager) gatheredValues(ctx context.Context, arcanum *arcanav1.Arcanum) (map[string]string, bool, error) {
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{
+		Name:      gatheredSecretName(arcanum.GetName()),
+		Namespace: arcanum.GetNamespace(),
+	}
+
+	err := r.Get(ctx, key, secret)
+	if apierrors.IsNotFound(err) {
+		return nil, false, nil
+	}
+
+	if err != nil {
+		return nil, false, fmt.Errorf("getting gathered secret: %w", err)
+	}
+
+	values := make(map[string]string, len(secret.Data))
+	for k, v := range secret.Data {
+		values[k] = string(v)
+	}
+
+	return values, true, nil
+}
+
+// gatherResultMessage is what a failed gather reported about itself. Reading
+// it here is what keeps custos off pods/log, which would be a cluster-wide
+// grant over output that routinely contains secrets.
+//
+// A missing ConfigMap means the process died before it could write one, so
+// the fallback points at the Job instead.
+func (r *ArcanumManager) gatherResultMessage(ctx context.Context, arcanum *arcanav1.Arcanum, jobName string) string {
+	cm := &corev1.ConfigMap{}
+	key := client.ObjectKey{
+		Name:      gatherResultConfigMapName(arcanum.GetName()),
+		Namespace: arcanum.GetNamespace(),
+	}
+
+	if err := r.Get(ctx, key, cm); err != nil {
+		return fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName)
+	}
+
+	if message := cm.Data[gather.ResultMessageKey]; message != "" {
+		return message
+	}
+
+	return fmt.Sprintf("gather job %s failed without a message", jobName)
 }
