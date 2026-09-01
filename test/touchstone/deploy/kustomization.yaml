@@ -1,0 +1,25 @@
+# Custos as the touchstone needs it: the CRDs, which config/default leaves out
+# on purpose, and a manager running the image `just load-image` put on the
+# nodes rather than the published one, which a bare kind cluster cannot pull.
+resources:
+  - ../../../config/crd
+  - ../../../config/default
+
+images:
+  - name: ghcr.io/helmetica-framework/custos
+    newTag: dev
+
+patches:
+  # The image transformer above rewrites the container's image but not the
+  # gather image, which travels as a flag and is only a string to kustomize.
+  # A gather Job on the published tag would sit in ImagePullBackOff.
+  - target:
+      kind: Deployment
+      name: custos-controller-manager
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/args
+        value:
+          - controller
+          - --leader-elect
+          - --gather-image=ghcr.io/helmetica-framework/custos:dev

@@ -55,9 +55,22 @@ lint: fmt vet generate manifests docs
 build-docker: binary
     docker build . --tag {{ GHCR_IMG }}
 
+# Build the image and put it on the local cluster's nodes
+load-image: binary
+    docker build . --tag {{ DEV_IMG }}
+    {{ KIND_CMD }} load docker-image {{ DEV_IMG }} --name {{ KIND_CLUSTER }}
+
 # Run the controller from your host
-run: manifests generate fmt vet
-    go run main.go controller
+run: manifests generate fmt vet load-image
+    go run main.go controller --gather-image {{ DEV_IMG }}
+
+# Needs a running athanor cluster (just ignite). The suite installs the CRDs
+# and the manager itself; load-image is a dependency because the gather Job
+# runs the same image and a bare kind cluster cannot pull the published one.
+
+# Read custos's purity: the end-to-end test
+touchstone: load-image load-image
+    {{ CHAINSAW_CMD }} test --config test/touchstone/chainsaw-config.yaml test/touchstone
 
 # Clean up the generated resources
 clean:
