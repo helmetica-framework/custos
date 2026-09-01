@@ -12,7 +12,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	batchv1ac "k8s.io/client-go/applyconfigurations/batch/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
-	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	arcanav1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/gather"
@@ -198,19 +197,7 @@ func (r *ArcanumManager) gatherJob(
 	hash string,
 ) *batchv1ac.JobApplyConfiguration {
 	name := arcanum.GetName()
-	labels := map[string]string{
-		arcanumNameLabel:      name,
-		arcanumNamespaceLabel: arcanum.GetNamespace(),
-		arcanumUIDLabel:       string(arcanum.GetUID()),
-	}
-
-	owner := metav1ac.OwnerReference().
-		WithAPIVersion(arcanav1.GroupVersion.String()).
-		WithKind("Arcanum").
-		WithName(name).
-		WithUID(arcanum.GetUID()).
-		WithController(true).
-		WithBlockOwnerDeletion(true)
+	labels := ownershipLabels(arcanum)
 
 	container := corev1ac.Container().
 		WithName(gatherContainerName).
@@ -240,7 +227,7 @@ func (r *ArcanumManager) gatherJob(
 
 	return batchv1ac.Job(gatherJobName(name, hash), arcanum.GetNamespace()).
 		WithLabels(labels).
-		WithOwnerReferences(owner).
+		WithOwnerReferences(controllerRef(arcanum)).
 		WithSpec(batchv1ac.JobSpec().
 			WithBackoffLimit(0).
 			WithTemplate(corev1ac.PodTemplateSpec().
