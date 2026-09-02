@@ -3,6 +3,7 @@ package gather
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,4 +171,45 @@ func TestPlanMarshal_KeepsTheNamespace(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, string(b), "x-abcd1234-tenant-postgres-poc")
+}
+
+// The wait names the Job, like everything else in the plan does, so changing
+// it has to produce a different one. Otherwise a raised wait would sit unused
+// behind a Job that already exists under the old name.
+func TestPlanHash_ChangesWhenThePodWaitChanges(t *testing.T) {
+	changed := samplePlan()
+	changed.Entries[1].PodWait = &metav1.Duration{Duration: 90 * time.Second}
+
+	assert.NotEqual(t, samplePlan().Hash(), changed.Hash())
+}
+
+// Clearing the field and setting it are different states, and a nil that
+// hashed the same as any particular value would collapse them.
+func TestPlanHash_DistinguishesAnUnsetPodWaitFromAValue(t *testing.T) {
+	unset := samplePlan()
+	zero := samplePlan()
+	zero.Entries[1].PodWait = &metav1.Duration{}
+
+	assert.NotEqual(t, unset.Hash(), zero.Hash())
+}
+
+func TestPlanRoundTrip_PreservesThePodWait(t *testing.T) {
+	plan := samplePlan()
+	plan.Entries[1].PodWait = &metav1.Duration{Duration: 90 * time.Second}
+
+	b, err := plan.Marshal()
+	require.NoError(t, err)
+
+	got, err := Unmarshal(b)
+	require.NoError(t, err)
+
+	var entry Entry
+	for _, e := range got.Entries {
+		if e.Key == "DATABASE" {
+			entry = e
+		}
+	}
+
+	require.NotNil(t, entry.PodWait)
+	assert.Equal(t, 90*time.Second, entry.PodWait.Duration)
 }

@@ -126,12 +126,17 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: podSelector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+    - name: podWait
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
     - name: source
       type:
         namedType: com.github.helmetica-framework.custos.api.v1.SourceType
     - name: value
       type:
         scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+  scalar: string
 - name: io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1
   map:
     elementType:

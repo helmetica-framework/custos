@@ -4,6 +4,7 @@ package v1
 
 import (
 	apiv1 "github.com/helmetica-framework/custos/api/v1"
+	apismetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -40,9 +41,29 @@ type ValueSourceApplyConfiguration struct {
 	// rather than a name because pod names are generated and change on every
 	// restart.
 	PodSelector *metav1.LabelSelectorApplyConfiguration `json:"podSelector,omitempty"`
-	// Container defaults to the pod's first container.
+	// Container is which one to run in. Left empty, the pod's
+	// kubectl.kubernetes.io/default-container annotation decides, and failing
+	// that its first container.
+	//
+	// The API server only defaults this itself when the pod has exactly one
+	// container, so for anything with a sidecar the choice has to be made
+	// before the request goes out.
 	Container *string `json:"container,omitempty"`
+	// PodWait is how long to wait for a pod matching PodSelector to become
+	// ready before failing the gather. It exists because a service that is
+	// slow to start is the ordinary case, not a fault, and waiting inside one
+	// attempt is cheaper than failing and being retried.
+	//
+	// Unset falls back to the gather binary's own default. Changing it moves
+	// the plan hash, so it re-runs a gather that has already settled.
+	PodWait *apismetav1.Duration `json:"podWait,omitempty"`
 	// Command's arguments are rendered against the metadata context.
+	//
+	// It must be idempotent: safe to run any number of times, returning the
+	// same value each time. A gather is retried until it succeeds, so a command
+	// that mints a fresh password per run would rewrite the target Secret under
+	// consumers that have already read it. Provisioning is fine as long as it
+	// is written to survive repetition.
 	Command []string `json:"command,omitempty"`
 }
 
@@ -121,6 +142,14 @@ func (b *ValueSourceApplyConfiguration) WithPodSelector(value *metav1.LabelSelec
 // If called multiple times, the Container field is set to the value of the last call.
 func (b *ValueSourceApplyConfiguration) WithContainer(value string) *ValueSourceApplyConfiguration {
 	b.Container = &value
+	return b
+}
+
+// WithPodWait sets the PodWait field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodWait field is set to the value of the last call.
+func (b *ValueSourceApplyConfiguration) WithPodWait(value apismetav1.Duration) *ValueSourceApplyConfiguration {
+	b.PodWait = &value
 	return b
 }
 

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
@@ -54,6 +55,10 @@ type phase struct {
 	GatherJobName   string
 	SecretName      string
 	SecretNamespace string
+	// RequeueAfter is when to look again when nothing else will tell us. A Job
+	// that has stopped changing produces no more watch events, so a retry that
+	// is not scheduled here never happens.
+	RequeueAfter time.Duration
 }
 
 // +kubebuilder:rbac:groups=arcana.helmetica.io,resources=arcana,verbs=get;list;watch;update;patch
@@ -105,6 +110,11 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	// A retry lives here rather than in the status, so both exits below have to
+	// carry it. Dropping it on the settled path leaves the Arcanum at Failed
+	// with nothing left to wake it.
+	result := ctrl.Result{RequeueAfter: want.RequeueAfter}
+
 	// Every recorded field is compared, or a decision that only moved the Job
 	// name would be made every pass and written none of them.
 	if arcanum.Status.Phase == want.Phase &&
@@ -114,7 +124,7 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		arcanum.Status.GatherJobName == want.GatherJobName &&
 		arcanum.Status.SecretName == want.SecretName &&
 		arcanum.Status.SecretNamespace == want.SecretNamespace {
-		return ctrl.Result{}, nil
+		return result, nil
 	}
 
 	if arcanum.Status.Phase != want.Phase {
@@ -134,7 +144,8 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if err := r.Status().Apply(ctx, status, fieldOwner, client.ForceOwnership); err != nil {
 		return ctrl.Result{}, fmt.Errorf("applying arcanum status: %w", err)
 	}
-	return ctrl.Result{}, nil
+
+	return result, nil
 }
 
 // desiredPhase runs one pass of the whole flow and reports what the status
@@ -285,14 +296,17 @@ func (r *ArcanumManager) gatherValues(
 		return nil, true, nil
 	}
 
-	switch {
-	case job.Status.Failed > 0:
+	// Above the switch, because a Job that gave up also has failed pods and
+	// would otherwise be read as one that is still trying.
+	if jobGaveUp(job) {
 		want.Phase = arcanav1.ArcanumPhaseFailed
 		want.Message = r.gatherResultMessage(ctx, arcanum,
 			fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName))
 
-		return nil, true, nil
+		return nil, true, r.retryGather(ctx, job, want)
+	}
 
+	switch {
 	case job.Status.Succeeded > 0 && !found:
 		// A Job that finished without leaving values either had its Secret
 		// removed, or exited zero on a failure. It reports what went wrong
@@ -301,12 +315,20 @@ func (r *ArcanumManager) gatherValues(
 		want.Message = r.gatherResultMessage(ctx, arcanum,
 			fmt.Sprintf("gather job %s succeeded but left no values", jobName))
 
-		return nil, true, nil
+		return nil, true, r.retryGather(ctx, job, want)
 
 	case job.Status.Succeeded > 0:
 		want.GatheredHash = hash
 
 		return gathered, false, nil
+
+	case job.Status.Failed > 0:
+		// An attempt failed and another is coming. The reason on a Pending is
+		// more use than Failed at something that is about to fix itself.
+		want.Phase = arcanav1.ArcanumPhasePending
+		want.Message = r.gatherResultMessage(ctx, arcanum, gatheringMessage)
+
+		return nil, true, nil
 
 	default:
 		want.Phase = arcanav1.ArcanumPhasePending

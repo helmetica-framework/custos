@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
@@ -428,15 +429,9 @@ func TestReconcile_FailedGatherSurfacesTheResultMessage(t *testing.T) {
 	require.Len(t, jobs.Items, 1)
 
 	job := jobs.Items[0]
-	job.Status.Failed = 1
-	require.NoError(t, c.Status().Update(ctx, &job))
-	require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "sample-gather-result", Namespace: "default"},
-		Data: map[string]string{
-			"status":  "error",
-			"message": `objectRef USERNAME: secrets "postgres-poc-app" not found`,
-		},
-	}))
+	failGatherJob(t, c, &job, time.Now())
+	require.NoError(t, c.Create(ctx, gatherResult("error",
+		`objectRef USERNAME: secrets "postgres-poc-app" not found`)))
 
 	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
 	require.NoError(t, err)
@@ -620,4 +615,191 @@ func TestReconcile_SucceededGatherWithNoValuesAndNoResultSaysSo(t *testing.T) {
 	got := &arcanav1.Arcanum{}
 	require.NoError(t, c.Get(ctx, arcanumKey(), got))
 	assert.Contains(t, got.Status.Message, "left no values")
+}
+
+// failGatherJob marks a Job as having given up, which is the JobFailed
+// condition and not status.failed. settledAt is when it gave up, and the retry
+// interval is measured from there.
+func failGatherJob(t *testing.T, c client.Client, job *batchv1.Job, settledAt time.Time) {
+	t.Helper()
+
+	job.Status.Failed = gatherBackoffLimit + 1
+	job.Status.Conditions = []batchv1.JobCondition{{
+		Type:               batchv1.JobFailed,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(settledAt),
+	}}
+
+	require.NoError(t, c.Status().Update(context.Background(), job))
+}
+
+// status.failed counts failed pods, and with retries turned on a failed pod is
+// an attempt rather than an outcome. Reading it as an outcome is how this
+// design silently reverts to the one-shot behaviour it replaces.
+func TestReconcile_AFailedAttemptHoldsAtPendingWithItsReason(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Failed = 1
+	require.NoError(t, c.Status().Update(ctx, job))
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Equal(t, arcanav1.ArcanumPhasePending, got.Status.Phase,
+		"the Job still has attempts left, so this is a wait and not a failure")
+	assert.Contains(t, got.Status.Message, "no ready pod matches app=service",
+		"Pending is more use with the reason on it than without")
+
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{}),
+		"a Job that still has attempts left must not be deleted")
+}
+
+// Once the Job has given up the phase goes red, but the retry is already
+// scheduled. Failed here means "not working right now", not "give up".
+func TestReconcile_AGatherJobThatGaveUpFailsAndSchedulesARetry(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	failGatherJob(t, c, job, time.Now())
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	assert.Positive(t, result.RequeueAfter, "nothing else will ever wake this Arcanum again")
+	assert.LessOrEqual(t, result.RequeueAfter, gatherRetryInterval)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	assert.Contains(t, got.Status.Message, "no ready pod matches app=service")
+
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{}),
+		"the interval has not passed, so there is nothing to delete yet")
+}
+
+// A Job spec is immutable and its name is the plan hash, so the only way to run
+// the same plan again is to delete the Job and let the next pass create it.
+func TestReconcile_AGatherJobIsRecreatedAfterTheRetryInterval(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	failGatherJob(t, c, job, time.Now().Add(-2*gatherRetryInterval))
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	err = c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})
+	assert.True(t, apierrors.IsNotFound(err), "the Job that gave up has to go before its name is free")
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	again := onlyGatherJob(t, c)
+	assert.Equal(t, job.GetName(), again.GetName(),
+		"the name is a pure function of the plan, so the retry is the same Job")
+}
+
+// The whole reason this exists: everything applied at once, the target pod not
+// Ready, the gather giving up, and the Arcanum reaching Ready anyway once the
+// pod turns up, with nobody touching anything.
+func TestReconcile_AnArcanumRecoversFromAGatherThatGaveUp(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	failGatherJob(t, c, job, time.Now().Add(-2*gatherRetryInterval))
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	// One pass deletes the Job that gave up, the next creates it again.
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	// This time the service is up, so the retry finds what it came for.
+	retry := onlyGatherJob(t, c)
+	retry.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, retry))
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-gathered", Namespace: "default"},
+		Data:       map[string][]byte{"USERNAME": []byte("app")},
+	}))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase,
+		"Failed is not terminal: an Arcanum has to be able to recover on its own")
+
+	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
+}
+
+// Reconcile returns early when nothing about the status changed, and a retry
+// that is pending changes nothing about the status. Dropping the requeue on
+// that path leaves the Arcanum at Failed forever, which is the bug this task
+// removes, reintroduced one layer up.
+func TestReconcile_ASettledFailureStillAsksForItsRetry(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	failGatherJob(t, c, job, time.Now())
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	// The first pass writes the Failed status.
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	// The second decides exactly the same thing and writes nothing.
+	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	assert.Positive(t, result.RequeueAfter)
+}
+
+// Deleting the gathered Secret by hand is the same shape of problem as a
+// gather that failed, and it heals the same way.
+func TestReconcile_AGatherThatLeftNoValuesIsRetried(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Succeeded = 1
+	job.Status.CompletionTime = ptr.To(metav1.NewTime(time.Now().Add(-2 * gatherRetryInterval)))
+	require.NoError(t, c.Status().Update(ctx, job))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	err = c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})
+	assert.True(t, apierrors.IsNotFound(err))
 }

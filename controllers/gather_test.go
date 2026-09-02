@@ -3,6 +3,7 @@ package controllers
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,7 +131,7 @@ func TestGatherJobName_IsADNSLabel(t *testing.T) {
 	assert.LessOrEqual(t, len(name), 63)
 }
 
-func TestGatherJob_RunsAsInstanceAdminWithNoRetries(t *testing.T) {
+func TestGatherJob_RunsAsInstanceAdmin(t *testing.T) {
 	plan, err := buildPlan(gatherMapping(), testMetadata())
 	require.NoError(t, err)
 	m, _ := newManager()
@@ -139,13 +140,27 @@ func TestGatherJob_RunsAsInstanceAdminWithNoRetries(t *testing.T) {
 	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
 
 	require.NotNil(t, job.Spec)
-	assert.Equal(t, int32(0), *job.Spec.BackoffLimit,
-		"an exec may provision, so a silent retry could mint a second password")
 	require.NotNil(t, job.Spec.Template.Spec)
 	assert.Equal(t, "instance-admin", *job.Spec.Template.Spec.ServiceAccountName)
 	require.Len(t, job.Spec.Template.Spec.Containers, 1)
 	assert.Equal(t, "ghcr.io/helmetica-framework/custos:v1",
 		*job.Spec.Template.Spec.Containers[0].Image)
+}
+
+// A pod that is not Ready yet is the common case, not a fault, and the Job
+// gets to try again on its own before anyone has to hear about it. This is
+// safe only because an exec is required to be idempotent.
+func TestGatherJob_RetriesWithinTheJob(t *testing.T) {
+	plan, err := buildPlan(gatherMapping(), testMetadata())
+	require.NoError(t, err)
+	m, _ := newManager()
+
+	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+
+	require.NotNil(t, job.Spec)
+	require.NotNil(t, job.Spec.BackoffLimit)
+	assert.Equal(t, int32(gatherBackoffLimit), *job.Spec.BackoffLimit)
+	assert.Positive(t, *job.Spec.BackoffLimit)
 }
 
 // The Job cannot find the Arcanum on its own, so anything it has to stamp on
@@ -235,4 +250,41 @@ func TestGatherNames_AreDistinct(t *testing.T) {
 	}
 
 	assert.Len(t, names, 4)
+}
+
+// The wait reaches the Job through the plan and nowhere else, so an entry that
+// drops it here would silently fall back to the binary's default.
+func TestBuildPlan_CarriesThePodWait(t *testing.T) {
+	mapping := map[string]arcanav1.ValueSource{
+		"DB": {
+			Source:      arcanav1.SourceExec,
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "pg"}},
+			Command:     []string{"psql", "-tAc", "select 1"},
+			PodWait:     &metav1.Duration{Duration: 90 * time.Second},
+		},
+	}
+
+	plan, err := buildPlan(mapping, testMetadata())
+
+	require.NoError(t, err)
+	require.Len(t, plan.Entries, 1)
+	require.NotNil(t, plan.Entries[0].PodWait)
+	assert.Equal(t, 90*time.Second, plan.Entries[0].PodWait.Duration)
+}
+
+// Two Arcana that differ only in how long they wait are two different plans,
+// so they must not share a Job name.
+func TestGatherHash_ChangesWithThePodWait(t *testing.T) {
+	base, err := buildPlan(gatherMapping(), testMetadata())
+	require.NoError(t, err)
+
+	waiting := gatherMapping()
+	source := waiting["DATABASE"]
+	source.PodWait = &metav1.Duration{Duration: 90 * time.Second}
+	waiting["DATABASE"] = source
+
+	changed, err := buildPlan(waiting, testMetadata())
+	require.NoError(t, err)
+
+	assert.NotEqual(t, gatherHash(base, ""), gatherHash(changed, ""))
 }

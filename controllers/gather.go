@@ -9,6 +9,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -48,7 +49,93 @@ const (
 	gatherSuffix         = "gather"
 	gatherResultSuffix   = "gather-result"
 	gatheredSecretSuffix = "gathered"
+
+	// gatherBackoffLimit is how many times Kubernetes reruns a gather before
+	// the Job gives up. Its own schedule is 10s, 20s, 40s, 80s, 160s and 320s,
+	// so six attempts buy about ten minutes of patience for a service that is
+	// still starting.
+	//
+	// This is only safe because an exec is required to be idempotent. A command
+	// that mints a value per run would mint seven of them here.
+	gatherBackoffLimit = 6
+
+	// gatherRetryInterval is how long custos waits after a Job gives up before
+	// deleting it, which is what frees the name for the next one.
+	gatherRetryInterval = 5 * time.Minute
+
+	// gatherRetryPoll is the short requeue after a delete, in case the watch on
+	// the Job does not wake us. It normally does.
+	gatherRetryPoll = 5 * time.Second
 )
+
+// jobGaveUp reports whether the Job stopped retrying.
+func jobGaveUp(job *batchv1.Job) bool {
+	_, gaveUp := jobConditionTime(job, batchv1.JobFailed)
+	return gaveUp
+}
+
+func jobConditionTime(job *batchv1.Job, condition batchv1.JobConditionType) (time.Time, bool) {
+	for _, c := range job.Status.Conditions {
+		if c.Type == condition && c.Status == corev1.ConditionTrue {
+			return c.LastTransitionTime.Time, true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+// gatherSettledAt is when the Job stopped changing, which is what the retry
+// interval is measured from: the JobFailed condition's transition time, or the
+// completion time for a Job that finished without leaving values.
+func gatherSettledAt(job *batchv1.Job) (time.Time, bool) {
+	if failedAt, ok := jobConditionTime(job, batchv1.JobFailed); ok {
+		return failedAt, true
+	}
+
+	if completedAt, ok := jobConditionTime(job, batchv1.JobComplete); ok {
+		return completedAt, true
+	}
+
+	if job.Status.CompletionTime != nil {
+		return job.Status.CompletionTime.Time, true
+	}
+
+	return time.Time{}, false
+}
+
+// retryGather deletes a Job that has settled without producing values, so the
+// next pass creates it again under the same name.
+func (r *ArcanumManager) retryGather(ctx context.Context, job *batchv1.Job, want *phase) error {
+	if !job.GetDeletionTimestamp().IsZero() {
+		want.RequeueAfter = gatherRetryPoll
+
+		return nil
+	}
+
+	settledAt, ok := gatherSettledAt(job)
+	if !ok {
+		want.RequeueAfter = gatherRetryInterval
+
+		return nil
+	}
+
+	if wait := time.Until(settledAt.Add(gatherRetryInterval)); wait > 0 {
+		want.RequeueAfter = wait
+
+		return nil
+	}
+
+	err := r.Delete(ctx, job,
+		client.PropagationPolicy(metav1.DeletePropagationBackground),
+		client.Preconditions{UID: new(job.GetUID())})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting gather job %s: %w", job.GetName(), err)
+	}
+
+	want.RequeueAfter = gatherRetryPoll
+
+	return nil
+}
 
 // needsGather reports whether any entry has to be resolved inside the
 // namespace. A mapping without one settles in a single reconcile, with no Job
@@ -122,6 +209,7 @@ func buildPlan(mapping map[string]arcanav1.ValueSource, md metadata) (gather.Pla
 				PodSelector: source.PodSelector,
 				Container:   source.Container,
 				Command:     command,
+				PodWait:     source.PodWait,
 			})
 		default:
 			// Every other source stays in the controller. Sending it to the
@@ -238,7 +326,7 @@ func (r *ArcanumManager) gatherJob(
 		WithLabels(labels).
 		WithOwnerReferences(controllerRef(arcanum)).
 		WithSpec(batchv1ac.JobSpec().
-			WithBackoffLimit(0).
+			WithBackoffLimit(gatherBackoffLimit).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(labels).
 				WithSpec(corev1ac.PodSpec().

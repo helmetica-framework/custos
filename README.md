@@ -54,6 +54,36 @@ commands in pods needs permissions custos itself must not hold, so it borrows
 `instance-admin`, the ServiceAccount chrysopoeia already binds to `admin`
 inside the instance namespace.
 
+An `exec` waits for a ready pod before it gives up, which covers the usual case
+of the service still starting. Thirty seconds by default, or set `podWait` on
+the entry for something slower:
+
+```yaml
+DATABASE:
+  source: exec
+  podSelector:
+    matchLabels:
+      app: postgres
+  command: ["psql", "-tAc", "select current_database()"]
+  podWait: 2m
+```
+
+`podWait` is part of the plan, so changing it re-runs a gather that had already
+settled. Only an `exec` may carry one; the CRD rejects it on any other source.
+
+`container` is optional too. Left empty it follows the pod's
+`kubectl.kubernetes.io/default-container` annotation, then its first container.
+The API server only defaults that itself for a pod with exactly one container,
+so anything with a sidecar needs the choice made for it.
+
+**An `exec` command must be idempotent**: safe to run any number of times, and
+returning the same value each time. A gather is retried until it succeeds, so a
+command that mints a fresh password per run would rewrite the credentials under
+consumers that have already read them. Provisioning is still fine, as long as
+it survives repetition: `CREATE USER IF NOT EXISTS` and an `ALTER USER` with a
+value the command can re-derive, or read-existing-else-create. Custos cannot
+check this.
+
 ## Templating
 
 Two layers, in this order.
@@ -70,8 +100,8 @@ chryso derived from the claim.
 **Templates**, which see the metadata and every other mapping key. Custos
 orders them by what they reference, so a template can be built on another
 template. A cycle or a reference to a name that does not exist is rejected
-before anything is created, because an `exec` may provision and a spec that
-can never render must not get that far.
+before anything is created. A spec that could never render would otherwise
+start a Job, fail, and be started again every quarter hour forever.
 
 ## Where the Secret lands
 
@@ -89,16 +119,32 @@ existing Secret is left exactly as it was.
 
 ## When a gather runs
 
-On a changed plan, and on nothing else. The plan is hashed into the Job's
-name, so an unchanged mapping finds the Job it already ran and skips the
-stage. To force one, change the `custos.helmetica.io/refresh` annotation to
-any new value; it is hashed in too. This matters because an `exec` is allowed
-to provision, and a gather that re-ran every reconcile could mint a new
-password every few seconds.
+On a changed plan, and on retry until it succeeds. The plan is hashed into the
+Job's name, so an unchanged mapping finds the Job it already ran and skips the
+stage. To force one, change the `custos.helmetica.io/refresh` annotation to any
+new value; it is hashed in too. Nothing runs a gather on a timer, so a rotated
+source password goes unnoticed until something pokes the arcanum.
 
-A failed gather reports the message its Job left in a ConfigMap rather than
-its log, which is what keeps custos off `pods/log`, a cluster-wide grant over
+A failed gather reports the message its Job left in a ConfigMap rather than its
+log, which is what keeps custos off `pods/log`, a cluster-wide grant over
 output that routinely contains secrets.
+
+## When a gather fails
+
+The usual reason is that the service is not up yet, which a helm install that
+applies everything at once produces every time. That is a wait, not a fault, so
+custos retries at two levels and neither gives up.
+
+The Job retries itself six times over about ten minutes of backoff, plus the
+wait each attempt spends looking for a ready pod. While it still has attempts
+left the arcanum holds at `Pending` with the reason on it, for example
+`no ready pod matches app=postgres`.
+
+Once the Job gives up the arcanum goes `Failed`, still carrying the reason, and
+custos deletes the Job five minutes later so the next pass creates it again.
+`Failed` is therefore not terminal: an arcanum recovers on its own once the
+thing it was waiting for turns up. Only a validation error is permanent, and
+those never create a Job at all.
 
 ## Structure
 

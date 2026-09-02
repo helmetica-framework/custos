@@ -45,6 +45,7 @@ type Entry struct {
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 	Container   string                `json:"container,omitempty"`
 	Command     []string              `json:"command,omitempty"`
+	PodWait     *metav1.Duration      `json:"podWait,omitempty"`
 }
 
 // Plan is everything the Job needs. It never names the Arcanum, because the
@@ -107,6 +108,15 @@ func (p Plan) Hash() string {
 
 	for _, entry := range entries {
 		fmt.Fprintln(h, entry.Key, entry.Kind, entry.APIVersion, entry.ObjectKind, entry.Name, entry.DataKey, entry.Path, entry.Container)
+
+		// Written unconditionally, and as a duration rather than a pointer, so
+		// that setting it and clearing it are different bytes and a nil never
+		// depends on how a pointer happens to format.
+		if entry.PodWait != nil {
+			fmt.Fprintln(h, "podWait", entry.PodWait.Duration)
+		} else {
+			fmt.Fprintln(h, "podWait", "unset")
+		}
 
 		for _, arg := range entry.Command {
 			fmt.Fprintln(h, "arg", arg)

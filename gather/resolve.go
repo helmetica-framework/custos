@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,6 +30,23 @@ type Executor interface {
 type Resolver struct {
 	Client   client.Client
 	Executor Executor
+	// PodWait is how long to wait for an exec's pod to become ready. Zero
+	// looks once and fails, which is what a unit test and a hand-run gather
+	// want. The Job sets it, because a helm install routinely starts the
+	// gather before the service it reads from is up.
+	PodWait time.Duration
+	// PodPoll is how often to look while waiting. Zero means the default.
+	PodPoll time.Duration
+}
+
+// podWait is how long this entry gets to wait for its pod: what the Arcanum
+// asked for, or the run's own default when it asked for nothing.
+func (r *Resolver) podWait(entry Entry) time.Duration {
+	if entry.PodWait != nil {
+		return entry.PodWait.Duration
+	}
+
+	return r.PodWait
 }
 
 // Resolve returns one value per plan entry, keyed by Entry.Key.
@@ -179,16 +197,15 @@ func stringAtPath(entry Entry, obj *unstructured.Unstructured) (string, error) {
 // resolveExec runs the entry's command in a pod matching its selector and
 // returns stdout with the trailing newline trimmed, since almost every CLI
 // adds one and almost no credential wants it.
-//
-// An empty entry.Container is passed through, because that is already what
-// the API means by the pod's first container.
 func (r *Resolver) resolveExec(ctx context.Context, namespace string, entry Entry) (string, error) {
-	name, err := r.selectPod(ctx, namespace, entry.PodSelector)
+	pod, err := r.selectPod(ctx, namespace, entry.PodSelector, r.podWait(entry))
 	if err != nil {
 		return "", fmt.Errorf("key %q: %w", entry.Key, err)
 	}
 
-	out, err := r.Executor.Exec(ctx, namespace, name, entry.Container, entry.Command)
+	name := pod.GetName()
+
+	out, err := r.Executor.Exec(ctx, namespace, name, execContainer(pod, entry.Container), entry.Command)
 	if err != nil {
 		// The executor keeps stdout out of its errors, since stdout is the
 		// value. Naming the pod is safe and is the first thing anyone will

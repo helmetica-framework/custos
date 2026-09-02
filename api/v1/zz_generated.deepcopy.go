@@ -150,6 +150,11 @@ func (in *ValueSource) DeepCopyInto(out *ValueSource) {
 		*out = new(metav1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PodWait != nil {
+		in, out := &in.PodWait, &out.PodWait
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	if in.Command != nil {
 		in, out := &in.Command, &out.Command
 		*out = make([]string, len(*in))

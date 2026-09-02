@@ -84,6 +84,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.source != 'objectRef' || (has(self.kind) && has(self.name))",message="an objectRef source needs a kind and a name"
 // +kubebuilder:validation:XValidation:rule="self.source != 'objectRef' || (has(self.key) != has(self.path))",message="an objectRef source needs exactly one of key or path"
 // +kubebuilder:validation:XValidation:rule="self.source != 'exec' || (has(self.podSelector) && has(self.command))",message="an exec source needs a podSelector and a command"
+// +kubebuilder:validation:XValidation:rule="!has(self.podWait) || self.source == 'exec'",message="only an exec source has a podWait"
 type ValueSource struct {
 	// Source decides which of the fields below custos reads. There is no
 	// default: guessing from which fields are set would turn a typo into a
@@ -123,10 +124,32 @@ type ValueSource struct {
 	// restart.
 	// +optional
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
-	// Container defaults to the pod's first container.
+	// Container is which one to run in. Left empty, the pod's
+	// kubectl.kubernetes.io/default-container annotation decides, and failing
+	// that its first container.
+	//
+	// The API server only defaults this itself when the pod has exactly one
+	// container, so for anything with a sidecar the choice has to be made
+	// before the request goes out.
 	// +optional
 	Container string `json:"container,omitempty"`
+	// PodWait is how long to wait for a pod matching PodSelector to become
+	// ready before failing the gather. It exists because a service that is
+	// slow to start is the ordinary case, not a fault, and waiting inside one
+	// attempt is cheaper than failing and being retried.
+	//
+	// Unset falls back to the gather binary's own default. Changing it moves
+	// the plan hash, so it re-runs a gather that has already settled.
+	// +optional
+	PodWait *metav1.Duration `json:"podWait,omitempty"`
+
 	// Command's arguments are rendered against the metadata context.
+	//
+	// It must be idempotent: safe to run any number of times, returning the
+	// same value each time. A gather is retried until it succeeds, so a command
+	// that mints a fresh password per run would rewrite the target Secret under
+	// consumers that have already read it. Provisioning is fine as long as it
+	// is written to survive repetition.
 	// +optional
 	Command []string `json:"command,omitempty"`
 }

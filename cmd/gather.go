@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,6 +19,7 @@ import (
 )
 
 var (
+	podWait     time.Duration
 	planPath    string
 	secretName  string
 	resultName  string
@@ -25,7 +27,15 @@ var (
 	arcanumUID  string
 )
 
-const defaultPlanPath = "/etc/custos/plan.json"
+const (
+	defaultPlanPath = "/etc/custos/plan.json"
+
+	// defaultPodWait absorbs the ordinary case, a helm install that started
+	// the gather before the service it execs into was up. The gather pod
+	// spends a few seconds scheduling before it even looks, so half a minute
+	// covers most of it without eating much of the Job's own budget.
+	defaultPodWait = 60 * time.Second
+)
 
 func init() {
 	RootCmd.AddCommand(gatherCmd)
@@ -35,6 +45,8 @@ func init() {
 	gatherCmd.Flags().StringVar(&resultName, "result", "", "Name of the ConfigMap to record the outcome in.")
 	gatherCmd.Flags().StringVar(&arcanumName, "arcanum", "", "Name of the Arcanum this gather belongs to.")
 	gatherCmd.Flags().StringVar(&arcanumUID, "arcanum-uid", "", "UID of the Arcanum this gather belongs to.")
+	gatherCmd.Flags().DurationVar(&podWait, "pod-wait", defaultPodWait,
+		"How long to wait for an exec's pod to become ready before failing the run.")
 }
 
 var gatherCmd = &cobra.Command{
@@ -77,6 +89,7 @@ func runGather(cmd *cobra.Command, _ []string) error {
 	resolver := gather.Resolver{
 		Client:   c,
 		Executor: &gather.PodExecutor{Config: restConf},
+		PodWait:  podWait,
 	}
 
 	// A half resolved gather must never reach the render stage, so a failure

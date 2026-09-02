@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -17,6 +20,18 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/streaming/pkg/httpstream"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	// defaultContainerAnnotation is the convention kubectl exec follows when
+	// no container is named. Honouring it lets a workload that puts a sidecar
+	// first say so once, rather than in every Arcanum that execs into it.
+	defaultContainerAnnotation = "kubectl.kubernetes.io/default-container"
+
+	// defaultPodPoll is how often selectPod looks while it waits. Resolver's
+	// own field exists so tests can run in milliseconds; nothing sets it in
+	// production.
+	defaultPodPoll = 2 * time.Second
 )
 
 // The keys and values of the result ConfigMap. The controller reads these to
@@ -39,40 +54,97 @@ const (
 // there is no retry to wait through, and a service whose pods are not up is a
 // condition for the Arcanum to report rather than one for the Job to block
 // on.
+// execContainer is the container to run the command in: the one the entry
+// asked for, then the one the pod nominates, then its first.
+//
+// The API server only defaults this itself when the pod has exactly one
+// container. For anything with a sidecar it refuses and lists the choices, so
+// leaving the field empty is not the same as asking for the first.
+func execContainer(pod *corev1.Pod, requested string) string {
+	if requested != "" {
+		return requested
+	}
+
+	nominated := pod.GetAnnotations()[defaultContainerAnnotation]
+	for _, c := range pod.Spec.Containers {
+		if c.Name == nominated {
+			return nominated
+		}
+	}
+
+	return pod.Spec.Containers[0].Name
+}
+
 func (r *Resolver) selectPod(
 	ctx context.Context,
 	namespace string,
 	selector *metav1.LabelSelector,
-) (string, error) {
+	wait time.Duration,
+) (*corev1.Pod, error) {
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return "", fmt.Errorf("building pod selector: %w", err)
+		return nil, fmt.Errorf("building pod selector: %w", err)
 	}
 
+	poll := r.PodPoll
+	if poll <= 0 {
+		poll = defaultPodPoll
+	}
+
+	deadline := time.Now().Add(wait)
+
+	for {
+		pod, err := r.readyPod(ctx, namespace, labelSelector)
+		if err != nil || pod != nil {
+			return pod, err
+		}
+
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("no ready pod matches %s", labelSelector)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("no ready pod matches %s: %w", labelSelector, ctx.Err())
+		case <-time.After(poll):
+		}
+	}
+}
+
+// readyPod is the alphabetically first ready pod matching the selector, or nil
+// when nothing matches right now. Alphabetical rather than newest, so repeated
+// gathers hit the same pod.
+func (r *Resolver) readyPod(
+	ctx context.Context,
+	namespace string,
+	selector labels.Selector,
+) (*corev1.Pod, error) {
 	pods := &corev1.PodList{}
 
-	err = r.Client.List(ctx, pods,
+	err := r.Client.List(ctx, pods,
 		client.InNamespace(namespace),
-		client.MatchingLabelsSelector{Selector: labelSelector})
+		client.MatchingLabelsSelector{Selector: selector})
 	if err != nil {
-		return "", fmt.Errorf("listing pods: %w", err)
+		return nil, fmt.Errorf("listing pods: %w", err)
 	}
 
-	var ready []string
+	var ready []corev1.Pod
 
 	for _, p := range pods.Items {
 		if podIsReady(p) {
-			ready = append(ready, p.GetName())
+			ready = append(ready, p)
 		}
 	}
 
 	if len(ready) == 0 {
-		return "", fmt.Errorf("no ready pod matches %s", labelSelector)
+		return nil, nil
 	}
 
-	slices.Sort(ready)
+	slices.SortFunc(ready, func(a, b corev1.Pod) int {
+		return strings.Compare(a.GetName(), b.GetName())
+	})
 
-	return ready[0], nil
+	return &ready[0], nil
 }
 
 // podIsReady reports whether the pod carries a true Ready condition. A pod

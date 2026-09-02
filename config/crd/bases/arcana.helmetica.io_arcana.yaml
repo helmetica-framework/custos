@@ -77,13 +77,26 @@ spec:
                             ConfigMap.
                           type: string
                         command:
-                          description: Command's arguments are rendered against the
-                            metadata context.
+                          description: |-
+                            Command's arguments are rendered against the metadata context.
+
+                            It must be idempotent: safe to run any number of times, returning the
+                            same value each time. A gather is retried until it succeeds, so a command
+                            that mints a fresh password per run would rewrite the target Secret under
+                            consumers that have already read it. Provisioning is fine as long as it
+                            is written to survive repetition.
                           items:
                             type: string
                           type: array
                         container:
-                          description: Container defaults to the pod's first container.
+                          description: |-
+                            Container is which one to run in. Left empty, the pod's
+                            kubectl.kubernetes.io/default-container annotation decides, and failing
+                            that its first container.
+
+                            The API server only defaults this itself when the pod has exactly one
+                            container, so for anything with a sidecar the choice has to be made
+                            before the request goes out.
                           type: string
                         key:
                           description: |-
@@ -152,6 +165,16 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                        podWait:
+                          description: |-
+                            PodWait is how long to wait for a pod matching PodSelector to become
+                            ready before failing the gather. It exists because a service that is
+                            slow to start is the ordinary case, not a fault, and waiting inside one
+                            attempt is cheaper than failing and being retried.
+
+                            Unset falls back to the gather binary's own default. Changing it moves
+                            the plan hash, so it re-runs a gather that has already settled.
+                          type: string
                         source:
                           description: |-
                             Source decides which of the fields below custos reads. There is no
@@ -185,6 +208,8 @@ spec:
                         rule: self.source != 'objectRef' || (has(self.key) != has(self.path))
                       - message: an exec source needs a podSelector and a command
                         rule: self.source != 'exec' || (has(self.podSelector) && has(self.command))
+                      - message: only an exec source has a podWait
+                        rule: '!has(self.podWait) || self.source == ''exec'''
                     description: |-
                       ValueMapping is keyed by the Secret key to produce. Consumers read these
                       names, so they are the chart author's to choose, not derived from
