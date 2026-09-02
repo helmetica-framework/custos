@@ -382,6 +382,15 @@ func (r *ArcanumManager) startGather(ctx context.Context, arcanum *arcanav1.Arca
 	return nil
 }
 
+// deleteGatherJobs removes every gather Job this Arcanum has.
+//
+// Safe once the values are in hand, because a settled gather is read back from
+// the gathered Secret and never from the Job. The gathered Secret and the
+// result ConfigMap are owned by the Arcanum rather than the Job, so they stay.
+func (r *ArcanumManager) deleteGatherJobs(ctx context.Context, arcanum *arcanav1.Arcanum) error {
+	return r.deleteStaleGatherJobs(ctx, arcanum, "")
+}
+
 // deleteStaleGatherJobs removes this Arcanum's gather Jobs other than keep.
 //
 // A Job's spec is immutable, so a changed plan is a new Job under a new name

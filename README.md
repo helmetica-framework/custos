@@ -135,6 +135,11 @@ A failed gather reports the message its Job left in a ConfigMap rather than its
 log, which is what keeps custos off `pods/log`, a cluster-wide grant over
 output that routinely contains secrets.
 
+Once the arcanum is `Ready` its gather Job is deleted, since a settled gather
+is read back from the gathered Secret and never from the Job. A Job that failed
+is kept: its pods are the only place left to look, and the retry measures its
+backoff from the Job's own condition.
+
 ## When a gather fails
 
 The usual reason is that the service is not up yet, which a helm install that

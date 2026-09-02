@@ -803,3 +803,70 @@ func TestReconcile_AGatherThatLeftNoValuesIsRetried(t *testing.T) {
 	err = c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})
 	assert.True(t, apierrors.IsNotFound(err))
 }
+
+// A settled gather is read back from the gathered Secret, never from the Job,
+// so once the credentials are written the Job and its pods are clutter.
+func TestReconcile_ReadyArcanumCleansUpItsGatherJob(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, job))
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-gathered", Namespace: "default"},
+		Data:       map[string][]byte{"USERNAME": []byte("app")},
+	}))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	require.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(ctx, jobs))
+	assert.Empty(t, jobs.Items)
+
+	assert.Empty(t, got.Status.GatherJobName,
+		"status must not point at a Job that is no longer there")
+}
+
+// The gathered Secret is owned by the Arcanum rather than the Job, so cleaning
+// up the Job must not take the values with it.
+func TestReconcile_CleanupLeavesTheGatheredValues(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, job))
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-gathered", Namespace: "default"},
+		Data:       map[string][]byte{"USERNAME": []byte("app")},
+	}))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	// A third pass, with the Job gone. It has to stay Ready off the gathered
+	// Secret alone, and must not decide the missing Job means gather again.
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(ctx, jobs))
+	assert.Empty(t, jobs.Items, "a settled gather must not be started again just because its Job is gone")
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
+}
