@@ -89,6 +89,10 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	log.V(1).Info("reconciling",
+		"generation", arcanum.Generation,
+		"phase", arcanum.Status.Phase)
+
 	if !arcanum.GetDeletionTimestamp().IsZero() {
 		log.V(1).Info("arcanum is being deleted, cleaning finalizer")
 
@@ -114,6 +118,10 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// carry it. Dropping it on the settled path leaves the Arcanum at Failed
 	// with nothing left to wake it.
 	result := ctrl.Result{RequeueAfter: want.RequeueAfter}
+
+	if want.RequeueAfter > 0 {
+		log.V(1).Info("scheduling another look", "after", want.RequeueAfter)
+	}
 
 	// Every recorded field is compared, or a decision that only moved the Job
 	// name would be made every pass and written none of them.
@@ -167,7 +175,11 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 		SecretNamespace: arcanum.Status.SecretNamespace,
 	}
 
+	log := r.arcanumLogger(arcanum)
+
 	if ptr.Deref(arcanum.Spec.Suspend, false) {
+		log.V(1).Info("suspended, leaving everything as it is")
+
 		want.Phase = arcanav1.ArcanumPhasePending
 		want.Message = suspendedMessage
 
@@ -182,6 +194,8 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 	mapping := arcanum.Spec.Credentials.ValueMapping
 
 	if err := validate(mapping, hasClaim); err != nil {
+		log.Info("value mapping is invalid, nothing will be created", "reason", err.Error())
+
 		return failedPhase(want, err), nil
 	}
 
@@ -227,8 +241,13 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 	ns := targetNamespace(md, hasClaim)
 
 	if err := r.applyTargetSecret(ctx, arcanum, ns, !hasClaim, rendered); err != nil {
+		log.Info("target secret was not written", "namespace", ns, "reason", err.Error())
+
 		return failedPhase(want, err), nil
 	}
+
+	log.V(1).Info("credentials applied",
+		"namespace", ns, "name", arcanum.Spec.Target.Name, "keys", len(rendered))
 
 	want.Phase = arcanav1.ArcanumPhaseReady
 	want.Message = credentialsAppliedMessage
@@ -260,6 +279,8 @@ func (r *ArcanumManager) gatherValues(
 	hash := gatherHash(plan, arcanum.GetAnnotations()[refreshAnnotation])
 	jobName := gatherJobName(arcanum.GetName(), hash)
 
+	log := r.arcanumLogger(arcanum).WithValues("job", jobName, "hash", hash)
+
 	// Pruned before anything is decided, so a changed plan does not leave the
 	// Job for the old one running alongside the new one.
 	if err := r.deleteStaleGatherJobs(ctx, arcanum, jobName); err != nil {
@@ -273,6 +294,8 @@ func (r *ArcanumManager) gatherValues(
 
 	// The values in hand came from this very plan, so there is nothing to run.
 	if found && arcanum.Status.GatheredHash == hash {
+		log.V(1).Info("gathered values are current", "values", len(gathered))
+
 		return gathered, false, nil
 	}
 
@@ -286,6 +309,8 @@ func (r *ArcanumManager) gatherValues(
 	}
 
 	if apierrors.IsNotFound(err) {
+		log.Info("starting gather job", "entries", len(plan.Entries))
+
 		if err := r.startGather(ctx, arcanum, plan, hash); err != nil {
 			return nil, true, err
 		}
@@ -303,6 +328,8 @@ func (r *ArcanumManager) gatherValues(
 		want.Message = r.gatherResultMessage(ctx, arcanum,
 			fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName))
 
+		log.Info("gather job gave up", "attempts", job.Status.Failed, "reason", want.Message)
+
 		return nil, true, r.retryGather(ctx, job, want)
 	}
 
@@ -315,10 +342,14 @@ func (r *ArcanumManager) gatherValues(
 		want.Message = r.gatherResultMessage(ctx, arcanum,
 			fmt.Sprintf("gather job %s succeeded but left no values", jobName))
 
+		log.Info("gather job finished without values", "reason", want.Message)
+
 		return nil, true, r.retryGather(ctx, job, want)
 
 	case job.Status.Succeeded > 0:
 		want.GatheredHash = hash
+
+		log.Info("gather succeeded", "values", len(gathered))
 
 		return gathered, false, nil
 
@@ -328,14 +359,26 @@ func (r *ArcanumManager) gatherValues(
 		want.Phase = arcanav1.ArcanumPhasePending
 		want.Message = r.gatherResultMessage(ctx, arcanum, gatheringMessage)
 
+		log.Info("gather attempt failed, another is coming",
+			"attempts", job.Status.Failed, "reason", want.Message)
+
 		return nil, true, nil
 
 	default:
+		log.V(1).Info("gather job is still running")
+
 		want.Phase = arcanav1.ArcanumPhasePending
 		want.Message = gatheringMessage
 
 		return nil, true, nil
 	}
+}
+
+// arcanumLogger names the Arcanum every line below Reconcile is about. The
+// controller-runtime request logger does not reach here, because desiredPhase
+// takes the object rather than the request.
+func (r *ArcanumManager) arcanumLogger(arcanum *arcanav1.Arcanum) logr.Logger {
+	return r.Log.WithValues("arcanum", client.ObjectKeyFromObject(arcanum))
 }
 
 // claimFor reads the claim only when the mapping actually needs it, so an

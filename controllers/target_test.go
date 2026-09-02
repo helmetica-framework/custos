@@ -167,3 +167,23 @@ func TestCleanupTargetSecret_EmptyStatusIsNotAnError(t *testing.T) {
 
 	require.NoError(t, m.cleanupTargetSecret(context.Background(), arcanumWithTarget(1)))
 }
+
+// A credentials Secret is usually loaded as environment variables, so the keys
+// are uppercased however the Arcanum spelled them.
+func TestApplyTargetSecret_UppercasesTheKeys(t *testing.T) {
+	m, c := newManager(arcanumWithTarget(1))
+	ctx := context.Background()
+
+	data := map[string]string{"host": "postgres-poc-rw", "db_name": "poc", "URL": "postgres://x"}
+
+	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, data))
+
+	got := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
+
+	assert.Equal(t, map[string]string{
+		"HOST":    "postgres-poc-rw",
+		"DB_NAME": "poc",
+		"URL":     "postgres://x",
+	}, got.StringData, "an already uppercase key is left exactly as it is")
+}

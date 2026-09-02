@@ -106,7 +106,11 @@ func gatherSettledAt(job *batchv1.Job) (time.Time, bool) {
 // retryGather deletes a Job that has settled without producing values, so the
 // next pass creates it again under the same name.
 func (r *ArcanumManager) retryGather(ctx context.Context, job *batchv1.Job, want *phase) error {
+	log := r.Log.WithValues("job", client.ObjectKeyFromObject(job))
+
 	if !job.GetDeletionTimestamp().IsZero() {
+		log.V(1).Info("gather job is still going away")
+
 		want.RequeueAfter = gatherRetryPoll
 
 		return nil
@@ -120,10 +124,14 @@ func (r *ArcanumManager) retryGather(ctx context.Context, job *batchv1.Job, want
 	}
 
 	if wait := time.Until(settledAt.Add(gatherRetryInterval)); wait > 0 {
+		log.V(1).Info("waiting before running the gather again", "after", wait)
+
 		want.RequeueAfter = wait
 
 		return nil
 	}
+
+	log.Info("deleting the gather job so the same plan can run again")
 
 	err := r.Delete(ctx, job,
 		client.PropagationPolicy(metav1.DeletePropagationBackground),
@@ -393,6 +401,9 @@ func (r *ArcanumManager) deleteStaleGatherJobs(ctx context.Context, arcanum *arc
 		if job.GetName() == keep {
 			continue
 		}
+
+		r.Log.V(1).Info("deleting a gather job from an earlier plan",
+			"job", client.ObjectKeyFromObject(&job), "keeping", keep)
 
 		// Background propagation, or the Job goes and its pods stay.
 		err := r.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground))

@@ -41,6 +41,12 @@ kubectl apply -k config/default
 Secret. Consumers read those names, so they are the chart author's to choose
 and are never derived from wherever the value happened to come from.
 
+Those names are uppercased on the way into the Secret, because a credentials
+Secret is usually loaded as environment variables. A mapping key of `host`
+becomes `HOST`. Templates still refer to the key as written, so
+`{{.host}}` is what reads it. Two keys that differ only in case would land on
+one, so an Arcanum carrying both is rejected before anything is created.
+
 | Source | Reads | Resolved by |
 | ------ | ----- | ----------- |
 | `const` | `value`, literally. | Custos. |

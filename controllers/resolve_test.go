@@ -360,3 +360,28 @@ func TestTemplateContext_MetadataOutranksAMappingKey(t *testing.T) {
 
 	assert.Equal(t, "postgres-poc", ctx["ClaimName"])
 }
+
+// Uppercasing happens on the way into the target Secret, so two keys that
+// differ only in case would land on one and one credential would vanish. That
+// has to fail before a Job runs, not after.
+func TestValidate_RejectsKeysThatCollideWhenUppercased(t *testing.T) {
+	mapping := map[string]arcanav1.ValueSource{
+		"host": {Source: arcanav1.SourceConst, Value: "a"},
+		"HOST": {Source: arcanav1.SourceConst, Value: "b"},
+	}
+
+	err := validate(mapping, true)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HOST")
+}
+
+// Keys that are merely different are not a collision, however similar.
+func TestValidate_AcceptsKeysThatOnlyLookAlike(t *testing.T) {
+	mapping := map[string]arcanav1.ValueSource{
+		"HOST":  {Source: arcanav1.SourceConst, Value: "a"},
+		"HOSTS": {Source: arcanav1.SourceConst, Value: "b"},
+	}
+
+	require.NoError(t, validate(mapping, true))
+}

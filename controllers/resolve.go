@@ -164,6 +164,20 @@ func validate(mapping map[string]arcanav1.ValueSource, hasClaim bool) error {
 		}
 	}
 
+	// The target Secret's keys are uppercased, so two keys that differ only in
+	// case would land on one and quietly drop a credential.
+	seen := make(map[string]string, len(keys))
+
+	for _, k := range keys {
+		upper := strings.ToUpper(k)
+
+		if first, ok := seen[upper]; ok {
+			return fmt.Errorf("keys %q and %q both become %q in the target secret", first, k, upper)
+		}
+
+		seen[upper] = k
+	}
+
 	if !hasClaim {
 		for _, k := range keys {
 			if mapping[k].Source == arcanav1.SourceClaimParam {

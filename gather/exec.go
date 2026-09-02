@@ -92,15 +92,26 @@ func (r *Resolver) selectPod(
 	}
 
 	deadline := time.Now().Add(wait)
+	waited := false
 
 	for {
 		pod, err := r.readyPod(ctx, namespace, labelSelector)
 		if err != nil || pod != nil {
+			if waited && pod != nil {
+				slog.Info("a pod became ready", "pod", pod.GetName(), "selector", labelSelector.String())
+			}
+
 			return pod, err
 		}
 
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("no ready pod matches %s", labelSelector)
+		}
+
+		if !waited {
+			slog.Info("waiting for a ready pod", "selector", labelSelector.String(), "wait", wait)
+
+			waited = true
 		}
 
 		select {

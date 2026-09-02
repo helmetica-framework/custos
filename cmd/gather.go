@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -79,6 +80,12 @@ func runGather(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unmarshalling plan: %w", err)
 	}
 
+	slog.Info("gather starting",
+		"namespace", plan.Namespace,
+		"entries", len(plan.Entries),
+		"secret", secretName,
+		"podWait", podWait)
+
 	restConf := ctrl.GetConfigOrDie()
 
 	c, err := client.New(restConf, client.Options{Scheme: newScheme()})
@@ -103,7 +110,18 @@ func runGather(cmd *cobra.Command, _ []string) error {
 		return errors.Join(runErr, err)
 	}
 
-	return runErr
+	if runErr != nil {
+		// Logged as well as recorded, because the ConfigMap is the
+		// controller's copy and this one is what survives a process that
+		// cannot write it.
+		slog.Error("gather failed", "error", runErr)
+
+		return runErr
+	}
+
+	slog.Info("gather finished")
+
+	return nil
 }
 
 // applyGathered writes the resolved values into the Secret the controller
@@ -120,6 +138,8 @@ func applyGathered(ctx context.Context, c client.Client, namespace string, value
 	if owner := arcanumOwner(); owner != nil {
 		secret.WithOwnerReferences(owner)
 	}
+
+	slog.Info("writing gathered values", "secret", secretName, "keys", len(values))
 
 	if err := c.Apply(ctx, secret, gather.FieldOwner, client.ForceOwnership); err != nil {
 		return fmt.Errorf("applying gathered Secret %q: %w", secretName, err)

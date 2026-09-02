@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,10 +41,16 @@ func controllerRef(arcanum *arcanav1.Arcanum) *metav1ac.OwnerReferenceApplyConfi
 // Arcanum's own namespace, which is the only case where an owner reference is
 // possible: a reference across namespaces is not resolvable, and the garbage
 // collector deletes the object that carries one.
-//
-// A Secret that already exists under someone else's ownership is refused
-// rather than overwritten, since the target name is a chart author's free
-// choice and can collide with something a tenant put there first.
+func upperKeys(data map[string]string) map[string]string {
+	upper := make(map[string]string, len(data))
+
+	for k, v := range data {
+		upper[strings.ToUpper(k)] = v
+	}
+
+	return upper
+}
+
 func (r *ArcanumManager) applyTargetSecret(
 	ctx context.Context,
 	arcanum *arcanav1.Arcanum,
@@ -66,6 +73,9 @@ func (r *ArcanumManager) applyTargetSecret(
 	// Only a Secret that is already there can belong to someone else. A
 	// NotFound is the ordinary first write.
 	if err == nil && existing.GetLabels()[arcanumUIDLabel] != string(arcanum.GetUID()) {
+		r.Log.Info("refusing to take over a secret this arcanum did not create",
+			"namespace", ns, "name", name)
+
 		return fmt.Errorf("secret %s/%s exists and is not managed by this arcanum", ns, name)
 	}
 
@@ -74,7 +84,7 @@ func (r *ArcanumManager) applyTargetSecret(
 	secret := corev1ac.Secret(name, ns).
 		WithType(corev1.SecretTypeOpaque).
 		WithLabels(ownershipLabels(arcanum)).
-		WithStringData(data)
+		WithStringData(upperKeys(data))
 
 	if local {
 		secret.WithOwnerReferences(controllerRef(arcanum))

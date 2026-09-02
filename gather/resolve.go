@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"time"
@@ -58,6 +59,10 @@ func (r *Resolver) Resolve(ctx context.Context, plan Plan) (map[string]string, e
 	values := make(map[string]string, len(plan.Entries))
 
 	for _, entry := range plan.Entries {
+		// The key, never the value. Everything this loop produces is a
+		// credential, and the Job's log is not a place to put one.
+		slog.Info("resolving", "key", entry.Key, "kind", entry.Kind)
+
 		var (
 			value string
 			err   error
@@ -73,11 +78,15 @@ func (r *Resolver) Resolve(ctx context.Context, plan Plan) (map[string]string, e
 		}
 
 		if err != nil {
+			slog.Error("could not resolve", "key", entry.Key, "error", err)
+
 			return nil, err
 		}
 
 		values[entry.Key] = value
 	}
+
+	slog.Info("resolved every entry", "values", len(values))
 
 	return values, nil
 }
@@ -89,6 +98,9 @@ func (r *Resolver) Resolve(ctx context.Context, plan Plan) (map[string]string, e
 // messages end up on the Arcanum's status, which anyone who can read the
 // claim can read too.
 func (r *Resolver) resolveObjectRef(ctx context.Context, namespace string, entry Entry) (string, error) {
+	slog.Info("reading object",
+		"key", entry.Key, "apiVersion", entry.APIVersion, "kind", entry.ObjectKind, "name", entry.Name)
+
 	gv, err := schema.ParseGroupVersion(entry.APIVersion)
 	if err != nil {
 		return "", fmt.Errorf("key %q: parsing apiVersion %q: %w", entry.Key, entry.APIVersion, err)
@@ -204,8 +216,13 @@ func (r *Resolver) resolveExec(ctx context.Context, namespace string, entry Entr
 	}
 
 	name := pod.GetName()
+	container := execContainer(pod, entry.Container)
 
-	out, err := r.Executor.Exec(ctx, namespace, name, execContainer(pod, entry.Container), entry.Command)
+	// The pod and the container, never the command. A provisioning exec puts
+	// the value it is setting in its own arguments.
+	slog.Info("running command", "key", entry.Key, "pod", name, "container", container)
+
+	out, err := r.Executor.Exec(ctx, namespace, name, container, entry.Command)
 	if err != nil {
 		// The executor keeps stdout out of its errors, since stdout is the
 		// value. Naming the pod is safe and is the first thing anyone will
