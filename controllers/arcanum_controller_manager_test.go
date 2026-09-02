@@ -555,3 +555,69 @@ func TestReconcile_DeletionRemovesTheRemoteSecretAndTheFinalizer(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err),
 		"removing the last finalizer lets the API server complete the delete")
 }
+
+// onlyGatherJob is the one gather Job these fixtures ever produce.
+func onlyGatherJob(t *testing.T, c client.Client) *batchv1.Job {
+	t.Helper()
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(context.Background(), jobs))
+	require.Len(t, jobs.Items, 1)
+
+	return &jobs.Items[0]
+}
+
+// gatherResult stands in for what the Job writes about itself. Reading this
+// rather than the Job's log is what keeps custos off pods/log.
+func gatherResult(status, message string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample-gather-result", Namespace: "default"},
+		Data:       map[string]string{"status": status, "message": message},
+	}
+}
+
+// A Job that exits 0 after a failed resolve is a bug custos cannot prevent
+// from the outside, but the reason is in the result ConfigMap either way.
+// Reporting "left no values" while that message goes unread turns a clear
+// error into a confusing one.
+func TestReconcile_SucceededGatherWithNoValuesSurfacesTheResultMessage(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, job))
+	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	assert.Contains(t, got.Status.Message, "no ready pod matches app=service")
+}
+
+// With no result ConfigMap there is nothing to read, and the fallback has to
+// say which of the two ways this went wrong actually happened.
+func TestReconcile_SucceededGatherWithNoValuesAndNoResultSaysSo(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	job := onlyGatherJob(t, c)
+	job.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, job))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Contains(t, got.Status.Message, "left no values")
+}

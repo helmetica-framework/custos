@@ -288,15 +288,18 @@ func (r *ArcanumManager) gatherValues(
 	switch {
 	case job.Status.Failed > 0:
 		want.Phase = arcanav1.ArcanumPhaseFailed
-		want.Message = r.gatherResultMessage(ctx, arcanum, jobName)
+		want.Message = r.gatherResultMessage(ctx, arcanum,
+			fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName))
 
 		return nil, true, nil
 
 	case job.Status.Succeeded > 0 && !found:
-		// The Job said it was done and the Secret is not there, so something
-		// removed it. Reporting this beats rendering an empty credential.
+		// A Job that finished without leaving values either had its Secret
+		// removed, or exited zero on a failure. It reports what went wrong
+		// either way, and that beats rendering an empty credential.
 		want.Phase = arcanav1.ArcanumPhaseFailed
-		want.Message = fmt.Sprintf("gather job %s succeeded but left no values", jobName)
+		want.Message = r.gatherResultMessage(ctx, arcanum,
+			fmt.Sprintf("gather job %s succeeded but left no values", jobName))
 
 		return nil, true, nil
 

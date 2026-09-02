@@ -343,13 +343,15 @@ func (r *ArcanumManager) gatheredValues(ctx context.Context, arcanum *arcanav1.A
 	return values, true, nil
 }
 
-// gatherResultMessage is what a failed gather reported about itself. Reading
-// it here is what keeps custos off pods/log, which would be a cluster-wide
-// grant over output that routinely contains secrets.
+// gatherResultMessage is what the Job reported about itself, or fallback when
+// it reported nothing. Reading this rather than the Job's log is what keeps
+// custos off pods/log, which would be a cluster-wide grant over output that
+// routinely contains secrets.
 //
-// A missing ConfigMap means the process died before it could write one, so
-// the fallback points at the Job instead.
-func (r *ArcanumManager) gatherResultMessage(ctx context.Context, arcanum *arcanav1.Arcanum, jobName string) string {
+// The fallback belongs to the caller because the two callers are in different
+// situations: one has a Job that gave up, the other a Job that claimed success
+// and left nothing behind.
+func (r *ArcanumManager) gatherResultMessage(ctx context.Context, arcanum *arcanav1.Arcanum, fallback string) string {
 	cm := &corev1.ConfigMap{}
 	key := client.ObjectKey{
 		Name:      gatherResultConfigMapName(arcanum.GetName()),
@@ -357,12 +359,12 @@ func (r *ArcanumManager) gatherResultMessage(ctx context.Context, arcanum *arcan
 	}
 
 	if err := r.Get(ctx, key, cm); err != nil {
-		return fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName)
+		return fallback
 	}
 
 	if message := cm.Data[gather.ResultMessageKey]; message != "" {
 		return message
 	}
 
-	return fmt.Sprintf("gather job %s failed without a message", jobName)
+	return fallback
 }
