@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crd-admin-role
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - arcana.helmetica.io
+  resources:
+  - arcana
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups:
+  - arcana.helmetica.io
+  resources:
+  - arcana/status
+  verbs: [get]

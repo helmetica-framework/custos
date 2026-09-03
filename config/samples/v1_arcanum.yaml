@@ -1,0 +1,5 @@
+apiVersion: arcana.helmetica.io/v1
+kind: Arcanum
+metadata:
+  name: sample
+spec: {}

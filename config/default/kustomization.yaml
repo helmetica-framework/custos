@@ -1,0 +1,13 @@
+namespace: custos-system
+
+namePrefix: custos-
+
+resources:
+- ../rbac
+- ../manager
+- metrics_service.yaml
+
+patches:
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
