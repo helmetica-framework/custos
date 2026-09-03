@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 
 	arcanav1 "github.com/helmetica-framework/custos/api/v1"
 	arcanaac "github.com/helmetica-framework/custos/applyconfiguration"
+	"github.com/helmetica-framework/custos/gather"
 )
 
 func newTestScheme() *runtime.Scheme {
@@ -847,23 +849,11 @@ func TestReconcile_CleanupLeavesTheGatheredValues(t *testing.T) {
 	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
-	require.NoError(t, err)
-
-	job := onlyGatherJob(t, c)
-	job.Status.Succeeded = 1
-	require.NoError(t, c.Status().Update(ctx, job))
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "sample-gathered", Namespace: "default"},
-		Data:       map[string][]byte{"USERNAME": []byte("app")},
-	}))
-
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
-	require.NoError(t, err)
+	settleAGather(t, m, c)
 
 	// A third pass, with the Job gone. It has to stay Ready off the gathered
 	// Secret alone, and must not decide the missing Job means gather again.
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -972,4 +962,77 @@ func TestReconcile_EmptyMappingLeavesNoGatherBehind(t *testing.T) {
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
 	assert.Empty(t, jobs.Items, "the Job for a mapping that no longer asks for one must go too")
+}
+
+// settleAGather runs the two passes a gather takes and returns the plan hash
+// off the Job name, which is what names the Job a later pass has to find.
+func settleAGather(t *testing.T, m *ArcanumManager, c client.Client) string {
+	t.Helper()
+
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(ctx, jobs))
+	require.Len(t, jobs.Items, 1)
+
+	// Stand in for the Job: mark it succeeded and drop the gathered Secret,
+	// labelled the way `custos gather` labels it. Without that label the
+	// controller's cache would not hand the Secret back at all.
+	job := jobs.Items[0]
+	job.Status.Succeeded = 1
+	require.NoError(t, c.Status().Update(ctx, &job))
+
+	hash := strings.TrimPrefix(job.GetName(), "sample-gather-")
+	require.NotEmpty(t, hash, "the Job name carries the plan hash")
+
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample-gathered",
+			Namespace: "default",
+			Labels:    map[string]string{gather.ArcanumNameLabel: "sample"},
+		},
+		Data: map[string][]byte{"USERNAME": []byte("app")},
+	}))
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	return hash
+}
+
+// A gather Job that turns up after the recorded name was cleared still has to
+// be collected. The name is cleared by the very pass that succeeds, so a
+// cleanup gated on it left that Job in the namespace for the life of the
+// Arcanum, with only the owner reference to take it away.
+func TestReconcile_CollectsAGatherJobTheStatusDoesNotRecord(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	hash := settleAGather(t, m, c)
+
+	settled := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), settled))
+	require.Equal(t, arcanav1.ArcanumPhaseReady, settled.Status.Phase)
+	require.Empty(t, settled.Status.GatherJobName,
+		"the successful pass clears the name, which is what strands the next Job")
+
+	// What a reconcile against a stale Arcanum leaves behind: a Job nothing
+	// records.
+	require.NoError(t, c.Create(ctx, &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample-gather-" + hash,
+			Namespace: "default",
+			Labels:    ownershipLabels(settled),
+		},
+	}))
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(ctx, jobs))
+	assert.Empty(t, jobs.Items, "a gather Job the status does not name must still be collected")
 }

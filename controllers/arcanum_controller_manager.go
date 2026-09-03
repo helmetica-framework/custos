@@ -246,13 +246,10 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 
 	// Failing to clean up does not un-write the Secret, so it is reported and
 	// tried again next pass rather than losing the Ready this pass earned.
-	if want.GatherJobName != "" {
-		if err := r.deleteGatherJobs(ctx, arcanum); err != nil {
-			log.Info("could not clean up the gather job",
-				"job", want.GatherJobName, "reason", err.Error())
-		} else {
-			want.GatherJobName = ""
-		}
+	if err := r.deleteGatherJobs(ctx, arcanum); err != nil {
+		log.Info("could not clean up the gather jobs", "reason", err.Error())
+	} else {
+		want.GatherJobName = ""
 	}
 
 	want.Phase = arcanav1.ArcanumPhaseReady
