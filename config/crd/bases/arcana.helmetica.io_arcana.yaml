@@ -21,6 +21,9 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
+    - jsonPath: .status.secretName
+      name: Secret
+      type: string
     - jsonPath: .status.message
       name: Message
       type: string
@@ -50,18 +53,205 @@ spec:
             type: object
           spec:
             description: |-
-              ArcanumSpec describes what custos guards. It is deliberately near-empty: the
-              real fields land here once the resource custos watches over is settled.
+              ArcanumSpec describes one Secret custos assembles: where every value comes
+              from, and what the Secret is called.
             properties:
+              credentials:
+                description: |-
+                  Credentials holds the value mapping. An arcanum with none is legal and
+                  produces an empty Secret, which is how a chart can declare the Secret
+                  before it knows what goes in it.
+                properties:
+                  valueMapping:
+                    additionalProperties:
+                      description: |-
+                        ValueSource says where one key's value comes from. It is flat rather than a
+                        union of sub-structs because a chart author has to write this by hand, and
+                        the CEL rules below keep the wrong combinations out.
+                      properties:
+                        apiVersion:
+                          default: v1
+                          description: |-
+                            APIVersion is the group and version of an objectRef's target. It
+                            defaults to the core group, since most references are to a Secret or a
+                            ConfigMap.
+                          type: string
+                        command:
+                          description: |-
+                            Command's arguments are rendered against the metadata context.
+
+                            It must be idempotent: safe to run any number of times, returning the
+                            same value each time. A gather is retried until it succeeds, so a command
+                            that mints a fresh password per run would rewrite the target Secret under
+                            consumers that have already read it. Provisioning is fine as long as it
+                            is written to survive repetition.
+                          items:
+                            type: string
+                          type: array
+                        container:
+                          description: |-
+                            Container is which one to run in. Left empty, the pod's
+                            kubectl.kubernetes.io/default-container annotation decides, and failing
+                            that its first container.
+
+                            The API server only defaults this itself when the pod has exactly one
+                            container, so for anything with a sidecar the choice has to be made
+                            before the request goes out.
+                          type: string
+                        key:
+                          description: |-
+                            Key reads one entry out of a Secret's or ConfigMap's data. A Secret's
+                            value is decoded.
+                          type: string
+                        kind:
+                          description: Kind is the kind of an objectRef's target.
+                          type: string
+                        name:
+                          description: |-
+                            Name is the object's name. It is rendered against the metadata context
+                            first, so "{{.ClaimName}}-app" works.
+                          type: string
+                        path:
+                          description: |-
+                            Path is a JSONPath, used by objectRef for anything that is not a Secret
+                            or ConfigMap data key, and by claimParam against the claim.
+                          type: string
+                        podSelector:
+                          description: |-
+                            PodSelector picks the pod an exec source runs in. It is a selector
+                            rather than a name because pod names are generated and change on every
+                            restart.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        podWait:
+                          description: |-
+                            PodWait is how long to wait for a pod matching PodSelector to become
+                            ready before failing the gather. It exists because a service that is
+                            slow to start is the ordinary case, not a fault, and waiting inside one
+                            attempt is cheaper than failing and being retried.
+
+                            Unset falls back to the gather binary's own default. Changing it moves
+                            the plan hash, so it re-runs a gather that has already settled.
+                          type: string
+                        source:
+                          description: |-
+                            Source decides which of the fields below custos reads. There is no
+                            default: guessing from which fields are set would turn a typo into a
+                            different lookup.
+                          enum:
+                          - const
+                          - objectRef
+                          - claimParam
+                          - exec
+                          - template
+                          type: string
+                        value:
+                          description: |-
+                            Value is the literal for a const source, or the template body for a
+                            template source.
+                          type: string
+                      required:
+                      - source
+                      type: object
+                      x-kubernetes-validations:
+                      - message: a const source needs a value
+                        rule: self.source != 'const' || has(self.value)
+                      - message: a template source needs a value
+                        rule: self.source != 'template' || has(self.value)
+                      - message: a claimParam source needs a path
+                        rule: self.source != 'claimParam' || has(self.path)
+                      - message: an objectRef source needs a kind and a name
+                        rule: self.source != 'objectRef' || (has(self.kind) && has(self.name))
+                      - message: an objectRef source needs exactly one of key or path
+                        rule: self.source != 'objectRef' || (has(self.key) != has(self.path))
+                      - message: an exec source needs a podSelector and a command
+                        rule: self.source != 'exec' || (has(self.podSelector) && has(self.command))
+                      - message: only an exec source has a podWait
+                        rule: '!has(self.podWait) || self.source == ''exec'''
+                    description: |-
+                      ValueMapping is keyed by the Secret key to produce. Consumers read these
+                      names, so they are the chart author's to choose, not derived from
+                      wherever the value happened to come from.
+                    type: object
+                type: object
               suspend:
                 description: |-
                   Suspend pauses reconciliation. A suspended arcanum holds at Pending and
                   custos leaves everything it owns untouched, which is the escape hatch
                   when the controller and the cluster disagree.
                 type: boolean
+              target:
+                description: |-
+                  Target names the Secret. It is required because a Secret custos cannot
+                  name is a Secret nobody can consume.
+                properties:
+                  name:
+                    description: |-
+                      Name is the Secret's name in whichever namespace the placement rule
+                      picks.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - target
             type: object
           status:
             properties:
+              gatherJobName:
+                description: |-
+                  GatherJobName is the Job custos is currently waiting on. It is recorded
+                  so an operator chasing a stuck arcanum has somewhere to read logs.
+                type: string
+              gatheredHash:
+                description: |-
+                  GatheredHash is the hash of the plan the gathered values in hand came
+                  from. A later reconcile computing the same hash knows it can skip the
+                  Job, which is what keeps an exec that provisions from running twice.
+                type: string
               message:
                 description: Message explains a Pending or Failed phase.
                 type: string
@@ -71,6 +261,14 @@ spec:
                 format: int64
                 type: integer
               phase:
+                type: string
+              secretName:
+                description: SecretName is the Secret custos wrote.
+                type: string
+              secretNamespace:
+                description: |-
+                  SecretNamespace is where that Secret landed. It is reported because the
+                  placement rule is not something a user should have to re-derive.
                 type: string
             type: object
         type: object

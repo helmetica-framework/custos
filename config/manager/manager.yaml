@@ -46,6 +46,7 @@ spec:
       - args:
         - controller
         - --leader-elect
+        - --gather-image=ghcr.io/helmetica-framework/custos:latest
         env:
         - name: POD_NAMESPACE
           valueFrom:

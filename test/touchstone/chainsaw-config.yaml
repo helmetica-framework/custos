@@ -1,0 +1,11 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Configuration
+metadata:
+  name: custos-touchstone
+spec:
+  timeouts:
+    apply: 1m
+    assert: 5m
+    cleanup: 5m
+    delete: 5m
+    exec: 5m

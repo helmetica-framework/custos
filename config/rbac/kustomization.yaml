@@ -8,3 +8,4 @@ resources:
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
 - crd_admin_role.yaml
+- claim_reader_role_binding.yaml
