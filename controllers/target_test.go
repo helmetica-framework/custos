@@ -28,6 +28,21 @@ func arcanumWithTarget(generation int64) *arcanav1.Arcanum {
 	return a
 }
 
+func secretKey(ns, name string) types.NamespacedName {
+	return types.NamespacedName{Name: name, Namespace: ns}
+}
+
+// renamedTo is an Arcanum whose target has been pointed at a new name, with
+// the status still recording where the last pass wrote.
+func renamedTo(name, oldNamespace string) *arcanav1.Arcanum {
+	a := arcanum(1)
+	a.Spec.Target = arcanav1.TargetSpec{Name: name}
+	a.Status.SecretName = "postgres-poc-credentials"
+	a.Status.SecretNamespace = oldNamespace
+
+	return a
+}
+
 func TestApplyTargetSecret_WritesTheData(t *testing.T) {
 	m, c := newManager(arcanumWithTarget(1))
 	ctx := context.Background()
@@ -37,10 +52,10 @@ func TestApplyTargetSecret_WritesTheData(t *testing.T) {
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
 
-	// StringData, not Data. A real API server moves the one into the other on
-	// write; the fake client stores what was sent.
-	assert.Equal(t, "postgres-poc-rw", got.StringData["HOST"])
-	assert.Equal(t, "hunter2", got.StringData["PASSWORD"])
+	// Data holds plain bytes. The base64 in a Secret belongs to the wire
+	// format, and the serializer puts it there.
+	assert.Equal(t, []byte("postgres-poc-rw"), got.Data["HOST"])
+	assert.Equal(t, []byte("hunter2"), got.Data["PASSWORD"])
 	assert.Equal(t, corev1.SecretTypeOpaque, got.Type)
 }
 
@@ -113,7 +128,78 @@ func TestApplyTargetSecret_UpdatesItsOwnSecret(t *testing.T) {
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
-	assert.Equal(t, "hunter3", got.StringData["PASSWORD"])
+	assert.Equal(t, []byte("hunter3"), got.Data["PASSWORD"])
+}
+
+// Renaming spec.target.name has to take the old Secret with it. Leaving it
+// behind would keep serving credentials from a name nothing points at any
+// more, and no later pass would find it: the status has moved on to the new
+// name, which is the only handle cleanup has.
+func TestApplyTargetSecret_RenameRemovesTheOldSecret(t *testing.T) {
+	m, c := newManager(arcanumWithTarget(1))
+	ctx := context.Background()
+
+	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+
+	renamed := renamedTo("postgres-poc-renamed", "tenant")
+	require.NoError(t, m.applyTargetSecret(ctx, renamed, "tenant", false, credentials()))
+
+	got := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, secretKey("tenant", "postgres-poc-renamed"), got))
+	assert.Equal(t, []byte("hunter2"), got.Data["PASSWORD"])
+
+	err := c.Get(ctx, targetKey("tenant"), &corev1.Secret{})
+	assert.True(t, apierrors.IsNotFound(err), "the Secret under the old name must not be left behind")
+}
+
+// A rename that cannot be written must not take the credentials with it. The
+// new name being taken is exactly the case a retry cannot fix, so deleting
+// first leaves consumers with nothing and no pass that can bring it back.
+func TestApplyTargetSecret_RenameOntoAForeignNameKeepsTheOldSecret(t *testing.T) {
+	foreign := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "postgres-poc-renamed", Namespace: "tenant"},
+		Data:       map[string][]byte{"KEEP": []byte("me")},
+	}
+	m, c := newManager(arcanumWithTarget(1), foreign)
+	ctx := context.Background()
+
+	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+
+	renamed := renamedTo("postgres-poc-renamed", "tenant")
+
+	err := m.applyTargetSecret(ctx, renamed, "tenant", false, credentials())
+
+	require.Error(t, err, "the new name belongs to someone else, so the rename cannot go through")
+
+	got := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, targetKey("tenant"), got),
+		"the credentials consumers are live on must survive a rename that failed")
+	assert.Equal(t, []byte("hunter2"), got.Data["PASSWORD"])
+
+	still := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, secretKey("tenant", "postgres-poc-renamed"), still))
+	assert.Equal(t, map[string][]byte{"KEEP": []byte("me")}, still.Data,
+		"the foreign Secret must be left exactly as it was")
+}
+
+// The target namespace is not settable and follows the claim annotation, so
+// adding or correcting that annotation moves the Secret under an unchanged
+// name. Comparing only the name misses it, and the old Secret is then stranded
+// in a namespace custos has no reason to visit again.
+func TestApplyTargetSecret_MovedNamespaceRemovesTheOldSecret(t *testing.T) {
+	m, c := newManager(arcanumWithTarget(1))
+	ctx := context.Background()
+
+	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+
+	moved := renamedTo("postgres-poc-credentials", "tenant")
+	require.NoError(t, m.applyTargetSecret(ctx, moved, "default", true, credentials()))
+
+	require.NoError(t, c.Get(ctx, targetKey("default"), &corev1.Secret{}))
+
+	err := c.Get(ctx, targetKey("tenant"), &corev1.Secret{})
+	assert.True(t, apierrors.IsNotFound(err),
+		"the name did not change but the namespace did, so the old Secret still has to go")
 }
 
 func TestCleanupTargetSecret_DeletesItsOwnSecret(t *testing.T) {
@@ -181,9 +267,9 @@ func TestApplyTargetSecret_UppercasesTheKeys(t *testing.T) {
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
 
-	assert.Equal(t, map[string]string{
-		"HOST":    "postgres-poc-rw",
-		"DB_NAME": "poc",
-		"URL":     "postgres://x",
-	}, got.StringData, "an already uppercase key is left exactly as it is")
+	assert.Equal(t, map[string][]byte{
+		"HOST":    []byte("postgres-poc-rw"),
+		"DB_NAME": []byte("poc"),
+		"URL":     []byte("postgres://x"),
+	}, got.Data, "an already uppercase key is left exactly as it is")
 }

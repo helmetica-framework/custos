@@ -41,7 +41,12 @@ func arcanum(generation int64) *arcanav1.Arcanum {
 			Generation: generation,
 			UID:        arcanumUID,
 		},
-		Spec: arcanav1.ArcanumSpec{},
+		// The target is required by the CRD, so an Arcanum without one is not
+		// a thing a cluster can hold. Every fixture carries it, and the ones
+		// that care about the name override it.
+		Spec: arcanav1.ArcanumSpec{
+			Target: arcanav1.TargetSpec{Name: "postgres-poc-credentials"},
+		},
 	}
 }
 
@@ -323,9 +328,9 @@ func TestReconcile_NoGatherNeededSettlesInOnePass(t *testing.T) {
 	secret := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("default"), secret))
 
-	// StringData, not Data. A real API server moves the one into the other on
-	// write; the fake client stores what was sent.
-	assert.Equal(t, "postgres://postgres-poc-rw:5432", secret.StringData["URL"])
+	// Data holds plain bytes. The base64 in a Secret belongs to the wire
+	// format, and the serializer puts it there.
+	assert.Equal(t, []byte("postgres://postgres-poc-rw:5432"), secret.Data["URL"])
 }
 
 // Without the annotation the Secret stays put, which is the plain helm case.
@@ -407,8 +412,8 @@ func TestReconcile_SucceededGatherProducesTheSecret(t *testing.T) {
 
 	secret := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), secret))
-	assert.Equal(t, "app", secret.StringData["USERNAME"])
-	assert.Equal(t, "postgres-poc-rw", secret.StringData["HOST"])
+	assert.Equal(t, []byte("app"), secret.Data["USERNAME"])
+	assert.Equal(t, []byte("postgres-poc-rw"), secret.Data["HOST"])
 
 	got := &arcanav1.Arcanum{}
 	require.NoError(t, c.Get(ctx, arcanumKey(), got))
@@ -869,4 +874,102 @@ func TestReconcile_CleanupLeavesTheGatheredValues(t *testing.T) {
 	require.NoError(t, c.Get(ctx, arcanumKey(), got))
 	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
+}
+
+// emptyTheMapping is the helm upgrade that renders valueMapping empty on an
+// Arcanum a previous pass already settled. It goes through the client so the
+// controller's own applies stay the only thing that owns the status, which is
+// what decides whether a later apply can clear a field.
+func emptyTheMapping(t *testing.T, c client.Client) {
+	t.Helper()
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
+
+	got.Spec.Credentials = arcanav1.CredentialsSpec{}
+	require.NoError(t, c.Update(context.Background(), got))
+}
+
+// An Arcanum with no mapping is documented as legal and as producing an empty
+// Secret, which is how a chart declares the Secret before it knows what goes
+// in it. Emptying the mapping on an upgrade therefore has to empty the Secret
+// rather than delete it: consumers mount it by name, and a name that stops
+// existing takes their pods down with it.
+func TestReconcile_EmptyMappingEmptiesTheSecret(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, targetKey("default"), secret))
+	require.NotEmpty(t, secret.Data, "the first pass has to write something for the second to clear")
+
+	emptyTheMapping(t, c)
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, targetKey("default"), got),
+		"the Secret is declared by the chart, so emptying the mapping must not remove it")
+	assert.Empty(t, got.Data, "a mapping with no keys leaves a Secret with no keys")
+	assert.Equal(t, corev1.SecretTypeOpaque, got.Type)
+}
+
+// The status has to keep describing what is actually there. A status naming a
+// Secret that is gone reports Ready over nothing, and because every recorded
+// field still matches, the equality check returns early and no later pass
+// corrects it.
+func TestReconcile_EmptyMappingKeepsTheRecordedSecret(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	emptyTheMapping(t, c)
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+
+	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	assert.Equal(t, "postgres-poc-credentials", got.Status.SecretName)
+	assert.Equal(t, "default", got.Status.SecretNamespace)
+
+	require.NoError(t, c.Get(ctx, secretKey(got.Status.SecretNamespace, got.Status.SecretName), &corev1.Secret{}),
+		"the status must not name a Secret that is not there")
+}
+
+// Nothing in an empty mapping needs gathering, so a Job an earlier plan left
+// outstanding has to go rather than keep running against a mapping that no
+// longer asks for it.
+func TestReconcile_EmptyMappingLeavesNoGatherBehind(t *testing.T) {
+	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	ctx := context.Background()
+
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	recorded := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), recorded))
+	require.NotEmpty(t, recorded.Status.GatherJobName, "the first pass has to leave a gather outstanding")
+
+	emptyTheMapping(t, c)
+
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	require.NoError(t, err)
+
+	got := &arcanav1.Arcanum{}
+	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	assert.Empty(t, got.Status.GatherJobName,
+		"an empty mapping needs no gather, so none may stay recorded")
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, c.List(ctx, jobs))
+	assert.Empty(t, jobs.Items, "the Job for a mapping that no longer asks for one must go too")
 }

@@ -80,9 +80,9 @@ func TestApplyGathered_WritesTheValuesUnderTheArcanumLabel(t *testing.T) {
 
 	assert.Equal(t, "sample", got.Labels[gather.ArcanumNameLabel])
 
-	// StringData rather than Data, so nothing here hand encodes base64. The
-	// fake client stores what was sent; a real API server moves it to Data.
-	assert.Equal(t, map[string]string{"USERNAME": "app"}, got.StringData)
+	// Data holds plain bytes. The base64 in a Secret belongs to the wire
+	// format, and the serializer puts it there.
+	assert.Equal(t, map[string][]byte{"USERNAME": []byte("app")}, got.Data)
 }
 
 // Deleting the Arcanum has to take the gathered credentials with it, and the

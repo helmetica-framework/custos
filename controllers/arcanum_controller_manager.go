@@ -103,8 +103,12 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			}
 		}
 
-		patch := client.MergeFrom(arcanum.DeepCopy())
-		controllerutil.RemoveFinalizer(arcanum, targetFinalizer)
+		patch := client.MergeFromWithOptions(arcanum.DeepCopy(), client.MergeFromWithOptimisticLock{})
+
+		// With the lock there's a chance for conflicts.
+		if !controllerutil.RemoveFinalizer(arcanum, targetFinalizer) {
+			return ctrl.Result{}, nil
+		}
 
 		return ctrl.Result{}, r.Patch(ctx, arcanum, patch)
 	}
@@ -197,15 +201,6 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 		log.Info("value mapping is invalid, nothing will be created", "reason", err.Error())
 
 		return failedPhase(want, err), nil
-	}
-
-	// An Arcanum with no mapping is legal and has nothing to write. A Secret
-	// with no keys would only be something for a consumer to trip over.
-	if len(mapping) == 0 {
-		want.Phase = arcanav1.ArcanumPhaseReady
-		want.Message = credentialsAppliedMessage
-
-		return want, nil
 	}
 
 	// Before the write, not after. A delete landing in between would
@@ -421,7 +416,7 @@ func (r *ArcanumManager) ensureTargetFinalizer(ctx context.Context, arcanum *arc
 		return nil
 	}
 
-	return r.Patch(ctx, arcanum, client.MergeFrom(base))
+	return r.Patch(ctx, arcanum, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // failedPhase reports err on the status rather than to the queue, keeping

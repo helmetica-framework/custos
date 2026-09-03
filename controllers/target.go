@@ -37,20 +37,22 @@ func controllerRef(arcanum *arcanav1.Arcanum) *metav1ac.OwnerReferenceApplyConfi
 	}
 }
 
-// applyTargetSecret writes the credentials. local says the target is the
-// Arcanum's own namespace, which is the only case where an owner reference is
-// possible: a reference across namespaces is not resolvable, and the garbage
-// collector deletes the object that carries one.
-func upperKeys(data map[string]string) map[string]string {
-	upper := make(map[string]string, len(data))
+// formatData uppercases the keys, because a credentials Secret is usually
+// loaded as environment variables however the Arcanum spelled them.
+func formatData(data map[string]string) map[string][]byte {
+	upper := make(map[string][]byte, len(data))
 
 	for k, v := range data {
-		upper[strings.ToUpper(k)] = v
+		upper[strings.ToUpper(k)] = []byte(v)
 	}
 
 	return upper
 }
 
+// applyTargetSecret writes the credentials. local says the target is the
+// Arcanum's own namespace, which is the only case where an owner reference is
+// possible: a reference across namespaces is not resolvable, and the garbage
+// collector deletes the object that carries one.
 func (r *ArcanumManager) applyTargetSecret(
 	ctx context.Context,
 	arcanum *arcanav1.Arcanum,
@@ -79,12 +81,12 @@ func (r *ArcanumManager) applyTargetSecret(
 		return fmt.Errorf("secret %s/%s exists and is not managed by this arcanum", ns, name)
 	}
 
-	// StringData rather than Data, so nothing here hand encodes base64. The
-	// API server moves it into data on write.
+	// Data carries plain bytes. The base64 belongs to the wire format, so
+	// encoding it here would land double encoded in the Secret.
 	secret := corev1ac.Secret(name, ns).
 		WithType(corev1.SecretTypeOpaque).
 		WithLabels(ownershipLabels(arcanum)).
-		WithStringData(upperKeys(data))
+		WithData(formatData(data))
 
 	if local {
 		secret.WithOwnerReferences(controllerRef(arcanum))
@@ -92,6 +94,14 @@ func (r *ArcanumManager) applyTargetSecret(
 
 	if err := r.Apply(ctx, secret, fieldOwner, client.ForceOwnership); err != nil {
 		return fmt.Errorf("applying secret %s/%s: %w", ns, name, err)
+	}
+
+	// cleanup on rename
+	old := arcanum.Status
+	if old.SecretName != "" && (old.SecretName != name || old.SecretNamespace != ns) {
+		if err := r.cleanupTargetSecret(ctx, arcanum); err != nil {
+			return fmt.Errorf("cleaning up moved secret %s/%s: %w", old.SecretNamespace, old.SecretName, err)
+		}
 	}
 
 	return nil

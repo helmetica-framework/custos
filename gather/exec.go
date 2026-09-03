@@ -43,17 +43,6 @@ const (
 	ResultStatusError = "error"
 )
 
-// selectPod returns the alphabetically first ready pod matching the selector.
-//
-// Alphabetical rather than newest, so repeated gathers keep hitting the same
-// pod. A value read off one replica can differ from the next, and a
-// credential that changes between reconciles for no visible reason is worse
-// than one read from a pod that is not the freshest.
-//
-// Not ready is not worth waiting for. The Job runs with backoffLimit zero, so
-// there is no retry to wait through, and a service whose pods are not up is a
-// condition for the Arcanum to report rather than one for the Job to block
-// on.
 // execContainer is the container to run the command in: the one the entry
 // asked for, then the one the pod nominates, then its first.
 //
@@ -75,6 +64,18 @@ func execContainer(pod *corev1.Pod, requested string) string {
 	return pod.Spec.Containers[0].Name
 }
 
+// selectPod returns a ready pod matching the selector, polling until wait
+// elapses and giving up with an error after that.
+//
+// Worth waiting for, because a gather usually runs while the thing it reads
+// from is still coming up, and a Job that failed on a pod that was seconds
+// away from ready costs a whole reconcile to find out.
+//
+// Which pod is readyPod's decision, and it picks alphabetically so that
+// repeated gathers keep hitting the same one. A value read off one replica can
+// differ from the next, and a credential that changes between reconciles for
+// no visible reason is worse than one read from a pod that is not the
+// freshest.
 func (r *Resolver) selectPod(
 	ctx context.Context,
 	namespace string,

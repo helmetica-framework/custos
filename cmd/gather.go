@@ -131,9 +131,14 @@ func runGather(cmd *cobra.Command, _ []string) error {
 // manager's cache is restricted to Secrets carrying it, so an unlabelled one
 // reads as NotFound however often the controller looks.
 func applyGathered(ctx context.Context, c client.Client, namespace string, values map[string]string) error {
+	dvalues := make(map[string][]byte, len(values))
+	for k, v := range values {
+		dvalues[k] = []byte(v)
+	}
+
 	secret := corev1ac.Secret(secretName, namespace).
 		WithLabels(map[string]string{gather.ArcanumNameLabel: arcanumName}).
-		WithStringData(values)
+		WithData(dvalues)
 
 	if owner := arcanumOwner(); owner != nil {
 		secret.WithOwnerReferences(owner)

@@ -69,7 +69,7 @@ run: manifests generate fmt vet load-image
 # runs the same image and a bare kind cluster cannot pull the published one.
 
 # Read custos's purity: the end-to-end test
-touchstone: load-image load-image
+touchstone: load-image
     {{ CHAINSAW_CMD }} test --config test/touchstone/chainsaw-config.yaml test/touchstone
 
 # Clean up the generated resources
