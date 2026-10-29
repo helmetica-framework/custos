@@ -17,7 +17,7 @@ import (
 // Arcanum is the thing custos keeps.
 // The pluralizer would make this "arcanums", so the Latin plural is spelled out.
 type ArcanumApplyConfiguration struct {
-	metav1.TypeMetaApplyConfiguration    `json:",inline"`
+	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                                 *ArcanumSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                               *ArcanumStatusApplyConfiguration `json:"status,omitempty"`
