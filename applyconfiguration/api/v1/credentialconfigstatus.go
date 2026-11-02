@@ -6,10 +6,10 @@ import (
 	apiv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
-// ArcanumStatusApplyConfiguration represents a declarative configuration of the ArcanumStatus type for use
+// CredentialConfigStatusApplyConfiguration represents a declarative configuration of the CredentialConfigStatus type for use
 // with apply.
-type ArcanumStatusApplyConfiguration struct {
-	Phase *apiv1.ArcanumPhase `json:"phase,omitempty"`
+type CredentialConfigStatusApplyConfiguration struct {
+	Phase *apiv1.CredentialConfigPhase `json:"phase,omitempty"`
 	// ObservedGeneration is the spec generation the phase was computed from.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Message explains a Pending or Failed phase.
@@ -19,7 +19,7 @@ type ArcanumStatusApplyConfiguration struct {
 	// Job, which is what keeps an exec that provisions from running twice.
 	GatheredHash *string `json:"gatheredHash,omitempty"`
 	// GatherJobName is the Job custos is currently waiting on. It is recorded
-	// so an operator chasing a stuck arcanum has somewhere to read logs.
+	// so an operator chasing a stuck credential config has somewhere to read logs.
 	GatherJobName *string `json:"gatherJobName,omitempty"`
 	// SecretName is the Secret custos wrote.
 	SecretName *string `json:"secretName,omitempty"`
@@ -28,16 +28,16 @@ type ArcanumStatusApplyConfiguration struct {
 	SecretNamespace *string `json:"secretNamespace,omitempty"`
 }
 
-// ArcanumStatusApplyConfiguration constructs a declarative configuration of the ArcanumStatus type for use with
+// CredentialConfigStatusApplyConfiguration constructs a declarative configuration of the CredentialConfigStatus type for use with
 // apply.
-func ArcanumStatus() *ArcanumStatusApplyConfiguration {
-	return &ArcanumStatusApplyConfiguration{}
+func CredentialConfigStatus() *CredentialConfigStatusApplyConfiguration {
+	return &CredentialConfigStatusApplyConfiguration{}
 }
 
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithPhase(value apiv1.ArcanumPhase) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithPhase(value apiv1.CredentialConfigPhase) *CredentialConfigStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *ArcanumStatusApplyConfiguration) WithPhase(value apiv1.ArcanumPhase) *A
 // WithObservedGeneration sets the ObservedGeneration field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ObservedGeneration field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithObservedGeneration(value int64) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithObservedGeneration(value int64) *CredentialConfigStatusApplyConfiguration {
 	b.ObservedGeneration = &value
 	return b
 }
@@ -53,7 +53,7 @@ func (b *ArcanumStatusApplyConfiguration) WithObservedGeneration(value int64) *A
 // WithMessage sets the Message field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Message field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithMessage(value string) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithMessage(value string) *CredentialConfigStatusApplyConfiguration {
 	b.Message = &value
 	return b
 }
@@ -61,7 +61,7 @@ func (b *ArcanumStatusApplyConfiguration) WithMessage(value string) *ArcanumStat
 // WithGatheredHash sets the GatheredHash field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GatheredHash field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithGatheredHash(value string) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithGatheredHash(value string) *CredentialConfigStatusApplyConfiguration {
 	b.GatheredHash = &value
 	return b
 }
@@ -69,7 +69,7 @@ func (b *ArcanumStatusApplyConfiguration) WithGatheredHash(value string) *Arcanu
 // WithGatherJobName sets the GatherJobName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GatherJobName field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithGatherJobName(value string) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithGatherJobName(value string) *CredentialConfigStatusApplyConfiguration {
 	b.GatherJobName = &value
 	return b
 }
@@ -77,7 +77,7 @@ func (b *ArcanumStatusApplyConfiguration) WithGatherJobName(value string) *Arcan
 // WithSecretName sets the SecretName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the SecretName field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithSecretName(value string) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithSecretName(value string) *CredentialConfigStatusApplyConfiguration {
 	b.SecretName = &value
 	return b
 }
@@ -85,7 +85,7 @@ func (b *ArcanumStatusApplyConfiguration) WithSecretName(value string) *ArcanumS
 // WithSecretNamespace sets the SecretNamespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the SecretNamespace field is set to the value of the last call.
-func (b *ArcanumStatusApplyConfiguration) WithSecretNamespace(value string) *ArcanumStatusApplyConfiguration {
+func (b *CredentialConfigStatusApplyConfiguration) WithSecretNamespace(value string) *CredentialConfigStatusApplyConfiguration {
 	b.SecretNamespace = &value
 	return b
 }

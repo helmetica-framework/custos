@@ -9,8 +9,8 @@ import (
 
 var RootCmd = &cobra.Command{
 	Use:   "custos",
-	Short: "custos manages arcana.",
-	Long:  "custos manages arcana.",
+	Short: "custos manages credential configs.",
+	Long:  "custos manages credential configs.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		cmd.SilenceUsage = true
 	},

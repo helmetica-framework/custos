@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
 func credentials() map[string]string {
@@ -22,9 +22,9 @@ func targetKey(ns string) types.NamespacedName {
 	return types.NamespacedName{Name: "postgres-poc-credentials", Namespace: ns}
 }
 
-func arcanumWithTarget(generation int64) *arcanav1.Arcanum {
-	a := arcanum(generation)
-	a.Spec.Target = arcanav1.TargetSpec{Name: "postgres-poc-credentials"}
+func credentialConfigWithTarget(generation int64) *custosv1.CredentialConfig {
+	a := credentialConfig(generation)
+	a.Spec.Target = custosv1.TargetSpec{Name: "postgres-poc-credentials"}
 	return a
 }
 
@@ -32,11 +32,11 @@ func secretKey(ns, name string) types.NamespacedName {
 	return types.NamespacedName{Name: name, Namespace: ns}
 }
 
-// renamedTo is an Arcanum whose target has been pointed at a new name, with
+// renamedTo is an CredentialConfig whose target has been pointed at a new name, with
 // the status still recording where the last pass wrote.
-func renamedTo(name, oldNamespace string) *arcanav1.Arcanum {
-	a := arcanum(1)
-	a.Spec.Target = arcanav1.TargetSpec{Name: name}
+func renamedTo(name, oldNamespace string) *custosv1.CredentialConfig {
+	a := credentialConfig(1)
+	a.Spec.Target = custosv1.TargetSpec{Name: name}
 	a.Status.SecretName = "postgres-poc-credentials"
 	a.Status.SecretNamespace = oldNamespace
 
@@ -44,10 +44,10 @@ func renamedTo(name, oldNamespace string) *arcanav1.Arcanum {
 }
 
 func TestApplyTargetSecret_WritesTheData(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
@@ -62,36 +62,36 @@ func TestApplyTargetSecret_WritesTheData(t *testing.T) {
 // The labels are how the finalizer knows the Secret is ours and how the
 // controller's cache selector sees it at all.
 func TestApplyTargetSecret_StampsOwnershipLabels(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
-	assert.Equal(t, "sample", got.Labels[arcanumNameLabel])
-	assert.Equal(t, "default", got.Labels[arcanumNamespaceLabel])
-	assert.Equal(t, string(arcanumUID), got.Labels[arcanumUIDLabel])
+	assert.Equal(t, "sample", got.Labels[credentialConfigNameLabel])
+	assert.Equal(t, "default", got.Labels[credentialConfigNamespaceLabel])
+	assert.Equal(t, string(credentialConfigUID), got.Labels[credentialConfigUIDLabel])
 }
 
 // Owner references cannot cross namespaces, so only the local case gets one.
 func TestApplyTargetSecret_LocalTargetGetsAnOwnerReference(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "default", true, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "default", true, credentials()))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("default"), got))
 	require.Len(t, got.OwnerReferences, 1)
-	assert.Equal(t, arcanumUID, got.OwnerReferences[0].UID)
+	assert.Equal(t, credentialConfigUID, got.OwnerReferences[0].UID)
 }
 
 func TestApplyTargetSecret_RemoteTargetGetsNoOwnerReference(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
@@ -99,17 +99,17 @@ func TestApplyTargetSecret_RemoteTargetGetsNoOwnerReference(t *testing.T) {
 		"an owner reference across namespaces would make the garbage collector delete the Secret")
 }
 
-// This is the guard that stops an Arcanum from taking over a Secret the
+// This is the guard that stops an CredentialConfig from taking over a Secret the
 // tenant already had at that name.
 func TestApplyTargetSecret_RefusesAForeignSecret(t *testing.T) {
 	existing := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "postgres-poc-credentials", Namespace: "tenant"},
 		Data:       map[string][]byte{"KEEP": []byte("me")},
 	}
-	m, c := newManager(arcanumWithTarget(1), existing)
+	m, c := newManager(credentialConfigWithTarget(1), existing)
 	ctx := context.Background()
 
-	err := m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials())
+	err := m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials())
 
 	require.Error(t, err)
 	got := &corev1.Secret{}
@@ -119,12 +119,12 @@ func TestApplyTargetSecret_RefusesAForeignSecret(t *testing.T) {
 }
 
 func TestApplyTargetSecret_UpdatesItsOwnSecret(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	rotated := map[string]string{"HOST": "postgres-poc-rw", "PASSWORD": "hunter3"}
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, rotated))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, rotated))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))
@@ -136,10 +136,10 @@ func TestApplyTargetSecret_UpdatesItsOwnSecret(t *testing.T) {
 // more, and no later pass would find it: the status has moved on to the new
 // name, which is the only handle cleanup has.
 func TestApplyTargetSecret_RenameRemovesTheOldSecret(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	renamed := renamedTo("postgres-poc-renamed", "tenant")
 	require.NoError(t, m.applyTargetSecret(ctx, renamed, "tenant", false, credentials()))
@@ -160,10 +160,10 @@ func TestApplyTargetSecret_RenameOntoAForeignNameKeepsTheOldSecret(t *testing.T)
 		ObjectMeta: metav1.ObjectMeta{Name: "postgres-poc-renamed", Namespace: "tenant"},
 		Data:       map[string][]byte{"KEEP": []byte("me")},
 	}
-	m, c := newManager(arcanumWithTarget(1), foreign)
+	m, c := newManager(credentialConfigWithTarget(1), foreign)
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	renamed := renamedTo("postgres-poc-renamed", "tenant")
 
@@ -187,10 +187,10 @@ func TestApplyTargetSecret_RenameOntoAForeignNameKeepsTheOldSecret(t *testing.T)
 // name. Comparing only the name misses it, and the old Secret is then stranded
 // in a namespace custos has no reason to visit again.
 func TestApplyTargetSecret_MovedNamespaceRemovesTheOldSecret(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
 	moved := renamedTo("postgres-poc-credentials", "tenant")
 	require.NoError(t, m.applyTargetSecret(ctx, moved, "default", true, credentials()))
@@ -203,11 +203,11 @@ func TestApplyTargetSecret_MovedNamespaceRemovesTheOldSecret(t *testing.T) {
 }
 
 func TestCleanupTargetSecret_DeletesItsOwnSecret(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, credentials()))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, credentials()))
 
-	a := arcanumWithTarget(1)
+	a := credentialConfigWithTarget(1)
 	a.Status.SecretName = "postgres-poc-credentials"
 	a.Status.SecretNamespace = "tenant"
 	require.NoError(t, m.cleanupTargetSecret(ctx, a))
@@ -223,10 +223,10 @@ func TestCleanupTargetSecret_LeavesAForeignSecretAlone(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "postgres-poc-credentials", Namespace: "tenant"},
 		Data:       map[string][]byte{"KEEP": []byte("me")},
 	}
-	m, c := newManager(arcanumWithTarget(1), existing)
+	m, c := newManager(credentialConfigWithTarget(1), existing)
 	ctx := context.Background()
 
-	a := arcanumWithTarget(1)
+	a := credentialConfigWithTarget(1)
 	a.Status.SecretName = "postgres-poc-credentials"
 	a.Status.SecretNamespace = "tenant"
 	require.NoError(t, m.cleanupTargetSecret(ctx, a), "cleanup must not fail on a foreign Secret")
@@ -237,32 +237,32 @@ func TestCleanupTargetSecret_LeavesAForeignSecretAlone(t *testing.T) {
 // The finalizer must release rather than block. A Secret that is already gone
 // is the outcome cleanup wanted.
 func TestCleanupTargetSecret_MissingSecretIsNotAnError(t *testing.T) {
-	m, _ := newManager(arcanumWithTarget(1))
+	m, _ := newManager(credentialConfigWithTarget(1))
 
-	a := arcanumWithTarget(1)
+	a := credentialConfigWithTarget(1)
 	a.Status.SecretName = "postgres-poc-credentials"
 	a.Status.SecretNamespace = "tenant"
 
 	require.NoError(t, m.cleanupTargetSecret(context.Background(), a))
 }
 
-// An Arcanum that never got as far as writing a Secret has nothing to clean
+// An CredentialConfig that never got as far as writing a Secret has nothing to clean
 // up, and must not wedge on the attempt.
 func TestCleanupTargetSecret_EmptyStatusIsNotAnError(t *testing.T) {
-	m, _ := newManager(arcanumWithTarget(1))
+	m, _ := newManager(credentialConfigWithTarget(1))
 
-	require.NoError(t, m.cleanupTargetSecret(context.Background(), arcanumWithTarget(1)))
+	require.NoError(t, m.cleanupTargetSecret(context.Background(), credentialConfigWithTarget(1)))
 }
 
 // A credentials Secret is usually loaded as environment variables, so the keys
-// are uppercased however the Arcanum spelled them.
+// are uppercased however the CredentialConfig spelled them.
 func TestApplyTargetSecret_UppercasesTheKeys(t *testing.T) {
-	m, c := newManager(arcanumWithTarget(1))
+	m, c := newManager(credentialConfigWithTarget(1))
 	ctx := context.Background()
 
 	data := map[string]string{"host": "postgres-poc-rw", "db_name": "poc", "URL": "postgres://x"}
 
-	require.NoError(t, m.applyTargetSecret(ctx, arcanumWithTarget(1), "tenant", false, data))
+	require.NoError(t, m.applyTargetSecret(ctx, credentialConfigWithTarget(1), "tenant", false, data))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), got))

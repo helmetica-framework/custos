@@ -10,11 +10,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
 // The annotations chrysopoeia stamps on an instance namespace. They are the
-// only thing that ties an Arcanum back to the claim it was provisioned for,
+// only thing that ties an CredentialConfig back to the claim it was provisioned for,
 // so their spelling has to match chryso exactly.
 const (
 	claimNamespaceAnnotation  = "chrysopoeia.io/claim-namespace"
@@ -23,12 +23,12 @@ const (
 	claimAPIVersionAnnotation = "chrysopoeia.io/claim-apiVersion"
 )
 
-// instanceContext reads the Arcanum's own namespace and works out whether it
+// instanceContext reads the CredentialConfig's own namespace and works out whether it
 // was provisioned by chrysopoeia. The second return is false for a plain helm
-// install, which is a supported case and not an error: that Arcanum has no
+// install, which is a supported case and not an error: that CredentialConfig has no
 // claim to point at and writes its Secret next to the service.
 //
-// InstanceNamespace and ArcanumName are filled in every case, claim or not.
+// InstanceNamespace and CredentialConfigName are filled in every case, claim or not.
 // They are the only metadata a helm install has.
 //
 // A namespace carrying some of the four annotations but not all of them is an
@@ -36,15 +36,15 @@ const (
 // a partial set means they were edited by hand. Carrying on would look up a
 // claim with an empty kind, and that failure reads as a broken lookup rather
 // than as the half-stamped namespace it is.
-func (r *ArcanumManager) instanceContext(ctx context.Context, arcanum *arcanav1.Arcanum) (metadata, bool, error) {
+func (r *CredentialConfigManager) instanceContext(ctx context.Context, credentialConfig *custosv1.CredentialConfig) (metadata, bool, error) {
 	md := metadata{
-		InstanceNamespace: arcanum.GetNamespace(),
-		ArcanumName:       arcanum.GetName(),
+		InstanceNamespace:    credentialConfig.GetNamespace(),
+		CredentialConfigName: credentialConfig.GetName(),
 	}
 
 	ns := &corev1.Namespace{}
 
-	err := r.Get(ctx, client.ObjectKey{Name: arcanum.GetNamespace()}, ns)
+	err := r.Get(ctx, client.ObjectKey{Name: credentialConfig.GetNamespace()}, ns)
 	if err != nil {
 		return md, false, fmt.Errorf("getting instance namespace: %w", err)
 	}
@@ -92,7 +92,7 @@ func (r *ArcanumManager) instanceContext(ctx context.Context, arcanum *arcanav1.
 //
 // The get goes through APIReader, never Client. A cached read of a runtime
 // kind would start an informer for every claim kind in the cluster.
-func (r *ArcanumManager) claimObject(ctx context.Context, md metadata) (*unstructured.Unstructured, error) {
+func (r *CredentialConfigManager) claimObject(ctx context.Context, md metadata) (*unstructured.Unstructured, error) {
 	claim := &unstructured.Unstructured{}
 
 	gv, err := schema.ParseGroupVersion(md.ClaimAPIVersion)
@@ -113,7 +113,7 @@ func (r *ArcanumManager) claimObject(ctx context.Context, md metadata) (*unstruc
 }
 
 // targetNamespace is where the credentials Secret goes: beside the user's
-// claim when there is one, and otherwise in the Arcanum's own namespace, next
+// claim when there is one, and otherwise in the CredentialConfig's own namespace, next
 // to the service.
 func targetNamespace(md metadata, hasClaim bool) string {
 	if hasClaim {

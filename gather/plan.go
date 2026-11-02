@@ -48,7 +48,7 @@ type Entry struct {
 	PodWait     *metav1.Duration      `json:"podWait,omitempty"`
 }
 
-// Plan is everything the Job needs. It never names the Arcanum, because the
+// Plan is everything the Job needs. It never names the CredentialConfig, because the
 // Job only has to resolve entries in one namespace.
 type Plan struct {
 	Namespace string  `json:"namespace"`

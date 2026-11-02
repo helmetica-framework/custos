@@ -6,12 +6,12 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:
 - apiGroups:
-  - arcana.helmetica.io
+  - custos.helmetica.io
   resources:
-  - arcana
+  - credentialconfigs
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups:
-  - arcana.helmetica.io
+  - custos.helmetica.io
   resources:
-  - arcana/status
+  - credentialconfigs/status
   verbs: [get]

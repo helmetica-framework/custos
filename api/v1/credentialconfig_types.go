@@ -4,18 +4,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ArcanumPhase string
+type CredentialConfigPhase string
 
 const (
-	ArcanumPhasePending ArcanumPhase = "Pending"
-	ArcanumPhaseReady   ArcanumPhase = "Ready"
-	ArcanumPhaseFailed  ArcanumPhase = "Failed"
+	CredentialConfigPhasePending CredentialConfigPhase = "Pending"
+	CredentialConfigPhaseReady   CredentialConfigPhase = "Ready"
+	CredentialConfigPhaseFailed  CredentialConfigPhase = "Failed"
 )
 
-// ArcanumSpec describes one Secret custos assembles: where every value comes
+// CredentialConfigSpec describes one Secret custos assembles: where every value comes
 // from, and what the Secret is called.
-type ArcanumSpec struct {
-	// Suspend pauses reconciliation. A suspended arcanum holds at Pending and
+type CredentialConfigSpec struct {
+	// Suspend pauses reconciliation. A suspended credential config holds at Pending and
 	// custos leaves everything it owns untouched, which is the escape hatch
 	// when the controller and the cluster disagree.
 	// +optional
@@ -26,7 +26,7 @@ type ArcanumSpec struct {
 	// +required
 	Target TargetSpec `json:"target"`
 
-	// Credentials holds the value mapping. An arcanum with none is legal and
+	// Credentials holds the value mapping. A credential config with none is legal and
 	// produces an empty Secret, which is how a chart can declare the Secret
 	// before it knows what goes in it.
 	// +optional
@@ -34,7 +34,7 @@ type ArcanumSpec struct {
 }
 
 // TargetSpec names the Secret. The namespace is not settable: it follows from
-// whether the Arcanum's own namespace carries chryso's claim annotation, so a
+// whether the CredentialConfig's own namespace carries chryso's claim annotation, so a
 // reagent chart works both under chrysopoeia and under a plain helm install.
 type TargetSpec struct {
 	// Name is the Secret's name in whichever namespace the placement rule
@@ -154,9 +154,9 @@ type ValueSource struct {
 	Command []string `json:"command,omitempty"`
 }
 
-type ArcanumStatus struct {
+type CredentialConfigStatus struct {
 	// +optional
-	Phase ArcanumPhase `json:"phase,omitempty"`
+	Phase CredentialConfigPhase `json:"phase,omitempty"`
 	// ObservedGeneration is the spec generation the phase was computed from.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -169,7 +169,7 @@ type ArcanumStatus struct {
 	// +optional
 	GatheredHash string `json:"gatheredHash,omitempty"`
 	// GatherJobName is the Job custos is currently waiting on. It is recorded
-	// so an operator chasing a stuck arcanum has somewhere to read logs.
+	// so an operator chasing a stuck credential config has somewhere to read logs.
 	// +optional
 	GatherJobName string `json:"gatherJobName,omitempty"`
 	// SecretName is the Secret custos wrote.
@@ -181,31 +181,29 @@ type ArcanumStatus struct {
 	SecretNamespace string `json:"secretNamespace,omitempty"`
 }
 
-// Arcanum is the thing custos keeps.
+// CredentialConfig is the thing custos keeps.
 // +kubebuilder:object:root=true
 // +kubebuilder:ac:generate=true
 // +kubebuilder:subresource:status
-// The pluralizer would make this "arcanums", so the Latin plural is spelled out.
-// +kubebuilder:resource:path=arcana,singular=arcanum
 // +kubebuilder:printcolumn:name="Suspended",type=boolean,JSONPath=`.spec.suspend`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Secret",type=string,JSONPath=`.status.secretName`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
-type Arcanum struct {
+type CredentialConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ArcanumSpec   `json:"spec,omitempty"`
-	Status ArcanumStatus `json:"status,omitempty"`
+	Spec   CredentialConfigSpec   `json:"spec,omitempty"`
+	Status CredentialConfigStatus `json:"status,omitempty"`
 }
 
-// ArcanumList contains a list of Arcanum.
+// CredentialConfigList contains a list of CredentialConfig.
 // +kubebuilder:object:root=true
-type ArcanumList struct {
+type CredentialConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 
-	Items []Arcanum `json:"items"`
+	Items []CredentialConfig `json:"items"`
 }
 
-func init() { SchemeBuilder.Register(&Arcanum{}, &ArcanumList{}) }
+func init() { SchemeBuilder.Register(&CredentialConfig{}, &CredentialConfigList{}) }

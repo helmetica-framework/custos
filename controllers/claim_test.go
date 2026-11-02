@@ -29,9 +29,9 @@ func chrysoAnnotations() map[string]string {
 }
 
 func TestInstanceContext_ReadsChrysoAnnotations(t *testing.T) {
-	m, _ := newManager(arcanum(1), instanceNamespace(chrysoAnnotations()))
+	m, _ := newManager(credentialConfig(1), instanceNamespace(chrysoAnnotations()))
 
-	md, hasClaim, err := m.instanceContext(context.Background(), arcanum(1))
+	md, hasClaim, err := m.instanceContext(context.Background(), credentialConfig(1))
 
 	require.NoError(t, err)
 	assert.True(t, hasClaim)
@@ -40,15 +40,15 @@ func TestInstanceContext_ReadsChrysoAnnotations(t *testing.T) {
 	assert.Equal(t, "PostgreSQL", md.ClaimKind)
 	assert.Equal(t, "v6.postgres.helmetica-bundles.io/v1", md.ClaimAPIVersion)
 	assert.Equal(t, "default", md.InstanceNamespace)
-	assert.Equal(t, "sample", md.ArcanumName)
+	assert.Equal(t, "sample", md.CredentialConfigName)
 }
 
 // A namespace with no chryso annotation is a plain helm install. That is a
-// supported case, not an error: the Arcanum simply writes its Secret locally.
+// supported case, not an error: the CredentialConfig simply writes its Secret locally.
 func TestInstanceContext_UnannotatedNamespaceHasNoClaim(t *testing.T) {
-	m, _ := newManager(arcanum(1), instanceNamespace(nil))
+	m, _ := newManager(credentialConfig(1), instanceNamespace(nil))
 
-	md, hasClaim, err := m.instanceContext(context.Background(), arcanum(1))
+	md, hasClaim, err := m.instanceContext(context.Background(), credentialConfig(1))
 
 	require.NoError(t, err)
 	assert.False(t, hasClaim)
@@ -62,9 +62,9 @@ func TestInstanceContext_UnannotatedNamespaceHasNoClaim(t *testing.T) {
 func TestInstanceContext_PartialAnnotationsAreAnError(t *testing.T) {
 	partial := chrysoAnnotations()
 	delete(partial, claimKindAnnotation)
-	m, _ := newManager(arcanum(1), instanceNamespace(partial))
+	m, _ := newManager(credentialConfig(1), instanceNamespace(partial))
 
-	_, _, err := m.instanceContext(context.Background(), arcanum(1))
+	_, _, err := m.instanceContext(context.Background(), credentialConfig(1))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), claimKindAnnotation)
@@ -103,7 +103,7 @@ func TestClaimObject_ReadsThroughTheUncachedReader(t *testing.T) {
 	claim.SetName("postgres-poc")
 	claim.SetNamespace("tenant")
 
-	m, _ := newManager(arcanum(1))
+	m, _ := newManager(credentialConfig(1))
 	m.APIReader = fake.NewClientBuilder().WithScheme(scheme).WithObjects(claim).Build()
 
 	got, err := m.claimObject(context.Background(), testMetadata())

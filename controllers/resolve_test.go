@@ -8,17 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
 func testMetadata() metadata {
 	return metadata{
-		ClaimName:         "postgres-poc",
-		ClaimNamespace:    "tenant",
-		ClaimKind:         "PostgreSQL",
-		ClaimAPIVersion:   "v6.postgres.helmetica-bundles.io/v1",
-		InstanceNamespace: "x-abcd1234-tenant-postgres-poc",
-		ArcanumName:       "credentials",
+		ClaimName:            "postgres-poc",
+		ClaimNamespace:       "tenant",
+		ClaimKind:            "PostgreSQL",
+		ClaimAPIVersion:      "v6.postgres.helmetica-bundles.io/v1",
+		InstanceNamespace:    "x-abcd1234-tenant-postgres-poc",
+		CredentialConfigName: "credentials",
 	}
 }
 
@@ -64,18 +64,18 @@ func TestTemplateRefs_IgnoresEscapedBraces(t *testing.T) {
 }
 
 func TestValidate_AcceptsAWellFormedMapping(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "postgres-poc-rw"},
-		"DB":   {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters.service.database"},
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "postgres://{{.HOST}}/{{.DB}}"},
+	mapping := map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "postgres-poc-rw"},
+		"DB":   {Source: custosv1.SourceClaimParam, Path: ".spec.parameters.service.database"},
+		"URL":  {Source: custosv1.SourceTemplate, Value: "postgres://{{.HOST}}/{{.DB}}"},
 	}
 
 	require.NoError(t, validate(mapping, true))
 }
 
 func TestValidate_RejectsAReservedName(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"ClaimName": {Source: arcanav1.SourceConst, Value: "nope"},
+	mapping := map[string]custosv1.ValueSource{
+		"ClaimName": {Source: custosv1.SourceConst, Value: "nope"},
 	}
 
 	err := validate(mapping, true)
@@ -85,9 +85,9 @@ func TestValidate_RejectsAReservedName(t *testing.T) {
 }
 
 func TestValidate_RejectsAnUnknownTemplateReference(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "{{.HOST}}/{{.MISSING}}"},
-		"HOST": {Source: arcanav1.SourceConst, Value: "h"},
+	mapping := map[string]custosv1.ValueSource{
+		"URL":  {Source: custosv1.SourceTemplate, Value: "{{.HOST}}/{{.MISSING}}"},
+		"HOST": {Source: custosv1.SourceConst, Value: "h"},
 	}
 
 	err := validate(mapping, true)
@@ -100,17 +100,17 @@ func TestValidate_RejectsAnUnknownTemplateReference(t *testing.T) {
 // Without this the unknown-reference check would reject every use of
 // {{.ClaimName}} in a template value.
 func TestValidate_AcceptsAMetadataReferenceInATemplate(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"URL": {Source: arcanav1.SourceTemplate, Value: "https://{{.ClaimName}}.example"},
+	mapping := map[string]custosv1.ValueSource{
+		"URL": {Source: custosv1.SourceTemplate, Value: "https://{{.ClaimName}}.example"},
 	}
 
 	require.NoError(t, validate(mapping, true))
 }
 
 func TestValidate_RejectsACycle(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"A": {Source: arcanav1.SourceTemplate, Value: "{{.B}}"},
-		"B": {Source: arcanav1.SourceTemplate, Value: "{{.A}}"},
+	mapping := map[string]custosv1.ValueSource{
+		"A": {Source: custosv1.SourceTemplate, Value: "{{.B}}"},
+		"B": {Source: custosv1.SourceTemplate, Value: "{{.A}}"},
 	}
 
 	err := validate(mapping, true)
@@ -123,8 +123,8 @@ func TestValidate_RejectsACycle(t *testing.T) {
 // costs nothing; failing later costs a gather Job that may have provisioned
 // something.
 func TestValidate_RejectsClaimParamWithoutAClaim(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"DB": {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters.service.database"},
+	mapping := map[string]custosv1.ValueSource{
+		"DB": {Source: custosv1.SourceClaimParam, Path: ".spec.parameters.service.database"},
 	}
 
 	err := validate(mapping, false)
@@ -134,11 +134,11 @@ func TestValidate_RejectsClaimParamWithoutAClaim(t *testing.T) {
 }
 
 func TestRenderOrder_PutsDependenciesFirst(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "{{.HOST}}/{{.DB}}"},
-		"HOST": {Source: arcanav1.SourceConst, Value: "h"},
-		"DB":   {Source: arcanav1.SourceTemplate, Value: "{{.NAME}}"},
-		"NAME": {Source: arcanav1.SourceConst, Value: "n"},
+	mapping := map[string]custosv1.ValueSource{
+		"URL":  {Source: custosv1.SourceTemplate, Value: "{{.HOST}}/{{.DB}}"},
+		"HOST": {Source: custosv1.SourceConst, Value: "h"},
+		"DB":   {Source: custosv1.SourceTemplate, Value: "{{.NAME}}"},
+		"NAME": {Source: custosv1.SourceConst, Value: "n"},
 	}
 
 	order, err := renderOrder(mapping)
@@ -152,13 +152,13 @@ func TestRenderOrder_PutsDependenciesFirst(t *testing.T) {
 // rendered output would still be correct but the plan hash built from it
 // would not be, so the order has to be pinned.
 func TestRenderOrder_IsDeterministic(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"A": {Source: arcanav1.SourceConst, Value: "a"},
-		"B": {Source: arcanav1.SourceConst, Value: "b"},
-		"C": {Source: arcanav1.SourceConst, Value: "c"},
-		"D": {Source: arcanav1.SourceConst, Value: "d"},
-		"E": {Source: arcanav1.SourceTemplate, Value: "{{.A}}{{.B}}"},
-		"F": {Source: arcanav1.SourceTemplate, Value: "{{.E}}{{.C}}"},
+	mapping := map[string]custosv1.ValueSource{
+		"A": {Source: custosv1.SourceConst, Value: "a"},
+		"B": {Source: custosv1.SourceConst, Value: "b"},
+		"C": {Source: custosv1.SourceConst, Value: "c"},
+		"D": {Source: custosv1.SourceConst, Value: "d"},
+		"E": {Source: custosv1.SourceTemplate, Value: "{{.A}}{{.B}}"},
+		"F": {Source: custosv1.SourceTemplate, Value: "{{.E}}{{.C}}"},
 	}
 
 	first, err := renderOrder(mapping)
@@ -190,14 +190,14 @@ func claimObject() *unstructured.Unstructured {
 }
 
 func TestRender_ResolvesEverySourceKind(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOST":     {Source: arcanav1.SourceConst, Value: "postgres-poc-rw"},
-		"PORT":     {Source: arcanav1.SourceConst, Value: "5432"},
-		"USERNAME": {Source: arcanav1.SourceObjectRef, Kind: "Secret", Name: "{{.ClaimName}}-app", Key: "username"},
-		"PASSWORD": {Source: arcanav1.SourceObjectRef, Kind: "Secret", Name: "{{.ClaimName}}-app", Key: "password"},
-		"DATABASE": {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters.service.database"},
+	mapping := map[string]custosv1.ValueSource{
+		"HOST":     {Source: custosv1.SourceConst, Value: "postgres-poc-rw"},
+		"PORT":     {Source: custosv1.SourceConst, Value: "5432"},
+		"USERNAME": {Source: custosv1.SourceObjectRef, Kind: "Secret", Name: "{{.ClaimName}}-app", Key: "username"},
+		"PASSWORD": {Source: custosv1.SourceObjectRef, Kind: "Secret", Name: "{{.ClaimName}}-app", Key: "password"},
+		"DATABASE": {Source: custosv1.SourceClaimParam, Path: ".spec.parameters.service.database"},
 		"URL": {
-			Source: arcanav1.SourceTemplate,
+			Source: custosv1.SourceTemplate,
 			Value:  "postgres://{{.USERNAME}}:{{.PASSWORD}}@{{.HOST}}:{{.PORT}}/{{.DATABASE}}",
 		},
 	}
@@ -217,8 +217,8 @@ func TestRender_ResolvesEverySourceKind(t *testing.T) {
 }
 
 func TestRender_TemplateSeesTheMetadataContext(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"ENDPOINT": {Source: arcanav1.SourceTemplate, Value: "{{.ClaimName}}.{{.ClaimNamespace}}.svc"},
+	mapping := map[string]custosv1.ValueSource{
+		"ENDPOINT": {Source: custosv1.SourceTemplate, Value: "{{.ClaimName}}.{{.ClaimNamespace}}.svc"},
 	}
 
 	got, err := render(mapping, testMetadata(), nil, nil)
@@ -230,10 +230,10 @@ func TestRender_TemplateSeesTheMetadataContext(t *testing.T) {
 // A template may build on another template. This is the case the topological
 // sort exists for: URL cannot render until DSN has.
 func TestRender_TemplateBuiltOnAnotherTemplate(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "h"},
-		"DSN":  {Source: arcanav1.SourceTemplate, Value: "{{.HOST}}:5432"},
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "postgres://{{.DSN}}/db"},
+	mapping := map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "h"},
+		"DSN":  {Source: custosv1.SourceTemplate, Value: "{{.HOST}}:5432"},
+		"URL":  {Source: custosv1.SourceTemplate, Value: "postgres://{{.DSN}}/db"},
 	}
 
 	got, err := render(mapping, testMetadata(), nil, nil)
@@ -243,8 +243,8 @@ func TestRender_TemplateBuiltOnAnotherTemplate(t *testing.T) {
 }
 
 func TestRender_MissingClaimPathIsAnError(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"DB": {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters.service.nothingHere"},
+	mapping := map[string]custosv1.ValueSource{
+		"DB": {Source: custosv1.SourceClaimParam, Path: ".spec.parameters.service.nothingHere"},
 	}
 
 	_, err := render(mapping, testMetadata(), nil, claimObject())
@@ -285,8 +285,8 @@ func TestTemplateRefs_IgnoresFieldsUnderAReboundDot(t *testing.T) {
 }
 
 func TestValidate_RejectsAnUnknownReferenceInsideABlock(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"URL": {Source: arcanav1.SourceTemplate, Value: `{{block "inner" .}}{{.MISSING}}{{end}}`},
+	mapping := map[string]custosv1.ValueSource{
+		"URL": {Source: custosv1.SourceTemplate, Value: `{{block "inner" .}}{{.MISSING}}{{end}}`},
 	}
 
 	err := validate(mapping, true)
@@ -296,9 +296,9 @@ func TestValidate_RejectsAnUnknownReferenceInsideABlock(t *testing.T) {
 }
 
 func TestValidate_AcceptsAFieldUnderAReboundDot(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOSTS": {Source: arcanav1.SourceConst, Value: "h"},
-		"OUT":   {Source: arcanav1.SourceTemplate, Value: `{{range .HOSTS}}{{.name}}{{end}}`},
+	mapping := map[string]custosv1.ValueSource{
+		"HOSTS": {Source: custosv1.SourceConst, Value: "h"},
+		"OUT":   {Source: custosv1.SourceTemplate, Value: `{{range .HOSTS}}{{.name}}{{end}}`},
 	}
 
 	require.NoError(t, validate(mapping, true))
@@ -308,8 +308,8 @@ func TestValidate_AcceptsAFieldUnderAReboundDot(t *testing.T) {
 // opens another, which serialises the entire claim into the Secret. It is also
 // the spelling kubectl uses, so it is an easy mistake to make.
 func TestValidate_RejectsBracesInAClaimParamPath(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"DB": {Source: arcanav1.SourceClaimParam, Path: "{.spec.parameters.service.database}"},
+	mapping := map[string]custosv1.ValueSource{
+		"DB": {Source: custosv1.SourceClaimParam, Path: "{.spec.parameters.service.database}"},
 	}
 
 	err := validate(mapping, true)
@@ -319,8 +319,8 @@ func TestValidate_RejectsBracesInAClaimParamPath(t *testing.T) {
 }
 
 func TestRender_ClaimParamReadsANonStringScalar(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"PORT": {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters.service.port"},
+	mapping := map[string]custosv1.ValueSource{
+		"PORT": {Source: custosv1.SourceClaimParam, Path: ".spec.parameters.service.port"},
 	}
 
 	got, err := render(mapping, testMetadata(), nil, claimObject())
@@ -332,8 +332,8 @@ func TestRender_ClaimParamReadsANonStringScalar(t *testing.T) {
 // AllowMissingKeys catches a missing map key but not a filter that matches
 // nothing, which succeeds and yields an empty string.
 func TestRender_ClaimFilterMatchingNothingIsAnError(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"READY": {Source: arcanav1.SourceClaimParam, Path: `.status.conditions[?(@.type=="Ready")].status`},
+	mapping := map[string]custosv1.ValueSource{
+		"READY": {Source: custosv1.SourceClaimParam, Path: `.status.conditions[?(@.type=="Ready")].status`},
 	}
 
 	_, err := render(mapping, testMetadata(), nil, claimObject())
@@ -344,8 +344,8 @@ func TestRender_ClaimFilterMatchingNothingIsAnError(t *testing.T) {
 // .spec.parameters is one typo away from .spec.parameters.service.database and
 // would otherwise dump the whole subtree into the Secret as JSON.
 func TestRender_ClaimPathSelectingASubtreeIsAnError(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"DB": {Source: arcanav1.SourceClaimParam, Path: ".spec.parameters"},
+	mapping := map[string]custosv1.ValueSource{
+		"DB": {Source: custosv1.SourceClaimParam, Path: ".spec.parameters"},
 	}
 
 	_, err := render(mapping, testMetadata(), nil, claimObject())
@@ -365,9 +365,9 @@ func TestTemplateContext_MetadataOutranksAMappingKey(t *testing.T) {
 // differ only in case would land on one and one credential would vanish. That
 // has to fail before a Job runs, not after.
 func TestValidate_RejectsKeysThatCollideWhenUppercased(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"host": {Source: arcanav1.SourceConst, Value: "a"},
-		"HOST": {Source: arcanav1.SourceConst, Value: "b"},
+	mapping := map[string]custosv1.ValueSource{
+		"host": {Source: custosv1.SourceConst, Value: "a"},
+		"HOST": {Source: custosv1.SourceConst, Value: "b"},
 	}
 
 	err := validate(mapping, true)
@@ -378,9 +378,9 @@ func TestValidate_RejectsKeysThatCollideWhenUppercased(t *testing.T) {
 
 // Keys that are merely different are not a collision, however similar.
 func TestValidate_AcceptsKeysThatOnlyLookAlike(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOST":  {Source: arcanav1.SourceConst, Value: "a"},
-		"HOSTS": {Source: arcanav1.SourceConst, Value: "b"},
+	mapping := map[string]custosv1.ValueSource{
+		"HOST":  {Source: custosv1.SourceConst, Value: "a"},
+		"HOSTS": {Source: custosv1.SourceConst, Value: "b"},
 	}
 
 	require.NoError(t, validate(mapping, true))

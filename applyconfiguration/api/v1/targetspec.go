@@ -6,7 +6,7 @@ package v1
 // with apply.
 //
 // TargetSpec names the Secret. The namespace is not settable: it follows from
-// whether the Arcanum's own namespace carries chryso's claim annotation, so a
+// whether the CredentialConfig's own namespace carries chryso's claim annotation, so a
 // reagent chart works both under chrysopoeia and under a plain helm install.
 type TargetSpecApplyConfiguration struct {
 	// Name is the Secret's name in whichever namespace the placement rule

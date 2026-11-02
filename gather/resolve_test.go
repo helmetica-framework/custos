@@ -107,7 +107,7 @@ func TestResolve_MissingObjectFailsTheWholeRun(t *testing.T) {
 	assert.Contains(t, err.Error(), "postgres-poc-app")
 }
 
-// The message lands on the Arcanum's status, which anyone with read access to
+// The message lands on the CredentialConfig's status, which anyone with read access to
 // the claim can see. It must say what failed without saying what was read.
 func TestResolve_MissingDataKeyErrorDoesNotLeakTheValue(t *testing.T) {
 	r := newResolver(appSecret())

@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/util/jsonpath"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
 // metadata is the context both templating layers share: the one that renders
@@ -21,12 +21,12 @@ import (
 // The fields are exported because text/template can only reach exported
 // fields.
 type metadata struct {
-	ClaimName         string
-	ClaimNamespace    string
-	ClaimKind         string
-	ClaimAPIVersion   string
-	InstanceNamespace string
-	ArcanumName       string
+	ClaimName            string
+	ClaimNamespace       string
+	ClaimKind            string
+	ClaimAPIVersion      string
+	InstanceNamespace    string
+	CredentialConfigName string
 }
 
 // reservedNames are the metadata identifiers. A mapping key using one would
@@ -148,13 +148,13 @@ func walkBranch(b *parse.BranchNode, visit func(*parse.FieldNode)) {
 }
 
 // validate checks everything that can be checked without touching the
-// cluster. hasClaim says whether the Arcanum's namespace carries chryso's
+// cluster. hasClaim says whether the CredentialConfig's namespace carries chryso's
 // claim annotation.
 //
 // The passes run in this order because an unknown reference would otherwise
 // surface as a confusing cycle. Keys are walked sorted, not in map order, so
-// an Arcanum nobody touched keeps the same status.message between reconciles.
-func validate(mapping map[string]arcanav1.ValueSource, hasClaim bool) error {
+// an CredentialConfig nobody touched keeps the same status.message between reconciles.
+func validate(mapping map[string]custosv1.ValueSource, hasClaim bool) error {
 	reserved := reservedNames()
 	keys := slices.Sorted(maps.Keys(mapping))
 
@@ -180,7 +180,7 @@ func validate(mapping map[string]arcanav1.ValueSource, hasClaim bool) error {
 
 	if !hasClaim {
 		for _, k := range keys {
-			if mapping[k].Source == arcanav1.SourceClaimParam {
+			if mapping[k].Source == custosv1.SourceClaimParam {
 				return fmt.Errorf("key %q uses claimParam, but this namespace has no claim", k)
 			}
 		}
@@ -190,14 +190,14 @@ func validate(mapping map[string]arcanav1.ValueSource, hasClaim bool) error {
 	// it in and open another, which lets one key pull in the whole claim.
 	for _, k := range keys {
 		src := mapping[k]
-		if src.Source == arcanav1.SourceClaimParam && strings.ContainsAny(src.Path, "{}") {
+		if src.Source == custosv1.SourceClaimParam && strings.ContainsAny(src.Path, "{}") {
 			return fmt.Errorf("key %q: claimParam path %q must not contain braces, write it bare as .spec.foo", k, src.Path)
 		}
 	}
 
 	for _, k := range keys {
 		src := mapping[k]
-		if src.Source != arcanav1.SourceTemplate {
+		if src.Source != custosv1.SourceTemplate {
 			continue
 		}
 
@@ -228,7 +228,7 @@ func validate(mapping map[string]arcanav1.ValueSource, hasClaim bool) error {
 // Only template entries have edges, since nothing else depends on anything.
 // The tie-break is sorted because the plan hash is built from this order, so
 // map iteration must not leak into it.
-func renderOrder(mapping map[string]arcanav1.ValueSource) ([]string, error) {
+func renderOrder(mapping map[string]custosv1.ValueSource) ([]string, error) {
 	order := make([]string, 0, len(mapping))
 	placed := map[string]struct{}{}
 	pending := map[string][]string{}
@@ -236,7 +236,7 @@ func renderOrder(mapping map[string]arcanav1.ValueSource) ([]string, error) {
 	// Phase 1: place the non-template keys in sorted order, and collect each
 	// template's edges for phase 2. Non-templates depend on nothing.
 	for _, k := range slices.Sorted(maps.Keys(mapping)) {
-		if mapping[k].Source != arcanav1.SourceTemplate {
+		if mapping[k].Source != custosv1.SourceTemplate {
 			order = append(order, k)
 			placed[k] = struct{}{}
 			continue
@@ -295,7 +295,7 @@ func renderOrder(mapping map[string]arcanav1.ValueSource) ([]string, error) {
 // objects is the gather Job's work, so by the time this runs those values are
 // already in gathered.
 func render(
-	mapping map[string]arcanav1.ValueSource,
+	mapping map[string]custosv1.ValueSource,
 	md metadata,
 	gathered map[string]string,
 	claim *unstructured.Unstructured,
@@ -311,10 +311,10 @@ func render(
 		src := mapping[key]
 
 		switch src.Source {
-		case arcanav1.SourceConst:
+		case custosv1.SourceConst:
 			values[key] = src.Value
 
-		case arcanav1.SourceObjectRef, arcanav1.SourceExec:
+		case custosv1.SourceObjectRef, custosv1.SourceExec:
 			v, ok := gathered[key]
 			if !ok {
 				return nil, fmt.Errorf(
@@ -323,14 +323,14 @@ func render(
 			}
 			values[key] = v
 
-		case arcanav1.SourceClaimParam:
+		case custosv1.SourceClaimParam:
 			v, err := claimParam(key, src.Path, claim)
 			if err != nil {
 				return nil, err
 			}
 			values[key] = v
 
-		case arcanav1.SourceTemplate:
+		case custosv1.SourceTemplate:
 			// The context is rebuilt per key because a template may reference
 			// an earlier template, whose value only lands during its own pass.
 			tmpl, err := template.New(key).Option("missingkey=error").Parse(src.Value)
@@ -423,7 +423,7 @@ func templateContext(md metadata, values map[string]string) map[string]any {
 	ctx["ClaimKind"] = md.ClaimKind
 	ctx["ClaimAPIVersion"] = md.ClaimAPIVersion
 	ctx["InstanceNamespace"] = md.InstanceNamespace
-	ctx["ArcanumName"] = md.ArcanumName
+	ctx["CredentialConfigName"] = md.CredentialConfigName
 
 	return ctx
 }

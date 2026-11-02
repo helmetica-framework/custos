@@ -8,11 +8,11 @@ import "sigs.k8s.io/controller-runtime/pkg/client"
 const FieldOwner = client.FieldOwner("custos")
 
 // The labels custos stamps on everything it owns. They live here rather than
-// in controllers because the Job stamps the arcanum-name label on the
+// in controllers because the Job stamps the credential config-name label on the
 // gathered Secret and the controller's cache selector reads it, so the two
 // processes have to agree on the string.
 const (
-	ArcanumNameLabel      = "custos.helmetica.io/arcanum-name"
-	ArcanumNamespaceLabel = "custos.helmetica.io/arcanum-namespace"
-	ArcanumUIDLabel       = "custos.helmetica.io/arcanum-uid"
+	CredentialConfigNameLabel      = "custos.helmetica.io/credentialconfig-name"
+	CredentialConfigNamespaceLabel = "custos.helmetica.io/credentialconfig-namespace"
+	CredentialConfigUIDLabel       = "custos.helmetica.io/credentialconfig-uid"
 )

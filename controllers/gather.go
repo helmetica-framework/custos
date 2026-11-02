@@ -19,7 +19,7 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/gather"
 )
 
@@ -105,7 +105,7 @@ func gatherSettledAt(job *batchv1.Job) (time.Time, bool) {
 
 // retryGather deletes a Job that has settled without producing values, so the
 // next pass creates it again under the same name.
-func (r *ArcanumManager) retryGather(ctx context.Context, job *batchv1.Job, want *phase) error {
+func (r *CredentialConfigManager) retryGather(ctx context.Context, job *batchv1.Job, want *phase) error {
 	log := r.Log.WithValues("job", client.ObjectKeyFromObject(job))
 
 	if !job.GetDeletionTimestamp().IsZero() {
@@ -151,10 +151,10 @@ func (r *ArcanumManager) retryGather(ctx context.Context, job *batchv1.Job, want
 //
 // True for SourceObjectRef and SourceExec. Everything else custos resolves on
 // its own.
-func needsGather(mapping map[string]arcanav1.ValueSource) bool {
+func needsGather(mapping map[string]custosv1.ValueSource) bool {
 	for _, v := range mapping {
 		switch v.Source {
-		case arcanav1.SourceExec, arcanav1.SourceObjectRef:
+		case custosv1.SourceExec, custosv1.SourceObjectRef:
 			return true
 		default:
 			continue
@@ -171,14 +171,14 @@ func needsGather(mapping map[string]arcanav1.ValueSource) bool {
 // up under in the target Secret. A ValueSource's own Key is a different
 // thing, the entry to read out of the referenced Secret or ConfigMap, and it
 // becomes Entry.DataKey.
-func buildPlan(mapping map[string]arcanav1.ValueSource, md metadata) (gather.Plan, error) {
+func buildPlan(mapping map[string]custosv1.ValueSource, md metadata) (gather.Plan, error) {
 	plan := gather.Plan{Namespace: md.InstanceNamespace}
 
 	for _, key := range slices.Sorted(maps.Keys(mapping)) {
 		source := mapping[key]
 
 		switch source.Source {
-		case arcanav1.SourceObjectRef:
+		case custosv1.SourceObjectRef:
 			name, err := renderMetadata(source.Name, md)
 			if err != nil {
 				return gather.Plan{}, fmt.Errorf("rendering name for %s: %w", key, err)
@@ -199,7 +199,7 @@ func buildPlan(mapping map[string]arcanav1.ValueSource, md metadata) (gather.Pla
 				Path:       source.Path,
 			})
 
-		case arcanav1.SourceExec:
+		case custosv1.SourceExec:
 			var command []string
 
 			for i, arg := range source.Command {
@@ -244,38 +244,38 @@ func gatherHash(plan gather.Plan, refreshToken string) string {
 
 // gatherJobName carries the plan hash, so a changed plan is a new Job rather
 // than an edit to a spec that cannot be edited.
-func gatherJobName(arcanumName, hash string) string {
-	return derivedName(arcanumName, gatherSuffix+"-"+hash)
+func gatherJobName(credentialConfigName, hash string) string {
+	return derivedName(credentialConfigName, gatherSuffix+"-"+hash)
 }
 
 // gatherPlanConfigMapName holds the plan the Job reads.
-func gatherPlanConfigMapName(arcanumName string) string {
-	return derivedName(arcanumName, gatherSuffix)
+func gatherPlanConfigMapName(credentialConfigName string) string {
+	return derivedName(credentialConfigName, gatherSuffix)
 }
 
 // gatherResultConfigMapName is where the Job reports what it resolved.
-func gatherResultConfigMapName(arcanumName string) string {
-	return derivedName(arcanumName, gatherResultSuffix)
+func gatherResultConfigMapName(credentialConfigName string) string {
+	return derivedName(credentialConfigName, gatherResultSuffix)
 }
 
 // gatheredSecretName is where the Job leaves the values themselves.
-func gatheredSecretName(arcanumName string) string {
-	return derivedName(arcanumName, gatheredSecretSuffix)
+func gatheredSecretName(credentialConfigName string) string {
+	return derivedName(credentialConfigName, gatheredSecretSuffix)
 }
 
-// derivedName joins the Arcanum's name to a suffix saying what the object is
+// derivedName joins the CredentialConfig's name to a suffix saying what the object is
 // for, and keeps the result inside the 63 characters a DNS label allows.
 //
-// An Arcanum name can already be 63 characters, so any suffix can push it
+// An CredentialConfig name can already be 63 characters, so any suffix can push it
 // over and the API server rejects the name rather than shortening it. The
-// room comes out of the Arcanum's part, since the suffix is the only thing
+// room comes out of the CredentialConfig's part, since the suffix is the only thing
 // saying which of the four objects this is.
 //
-// The trailing hash keeps two Arcana that share a long prefix off one name.
+// The trailing hash keeps two CredentialConfigs that share a long prefix off one name.
 // In a single namespace that would be two services overwriting each other's
 // credentials in one Secret on every reconcile.
-func derivedName(arcanumName, suffix string) string {
-	name := arcanumName + "-" + suffix
+func derivedName(credentialConfigName, suffix string) string {
+	name := credentialConfigName + "-" + suffix
 	if len(name) <= dnsLabelMax {
 		return name
 	}
@@ -283,7 +283,7 @@ func derivedName(arcanumName, suffix string) string {
 	sum := sha256.Sum256([]byte(name))
 	tail := fmt.Sprintf("-%x-%s", sum[:4], suffix)
 
-	prefix := strings.TrimRight(arcanumName[:dnsLabelMax-len(tail)], "-")
+	prefix := strings.TrimRight(credentialConfigName[:dnsLabelMax-len(tail)], "-")
 
 	return prefix + tail
 }
@@ -296,13 +296,13 @@ func derivedName(arcanumName, suffix string) string {
 // binds to the admin ClusterRole in that one namespace. That is the whole
 // point of the two stage design, since it keeps custos itself off pods/exec
 // and off read access to arbitrary kinds.
-func (r *ArcanumManager) gatherJob(
-	arcanum *arcanav1.Arcanum,
+func (r *CredentialConfigManager) gatherJob(
+	credentialConfig *custosv1.CredentialConfig,
 	plan gather.Plan,
 	hash string,
 ) *batchv1ac.JobApplyConfiguration {
-	name := arcanum.GetName()
-	labels := ownershipLabels(arcanum)
+	name := credentialConfig.GetName()
+	labels := ownershipLabels(credentialConfig)
 
 	container := corev1ac.Container().
 		WithName(gatherContainerName).
@@ -312,8 +312,8 @@ func (r *ArcanumManager) gatherJob(
 			"--plan", path.Join(gatherPlanMountPath, gatherPlanFileName),
 			"--secret", gatheredSecretName(name),
 			"--result", gatherResultConfigMapName(name),
-			"--arcanum", name,
-			"--arcanum-uid", string(arcanum.GetUID()),
+			"--credentialconfig", name,
+			"--credentialconfig-uid", string(credentialConfig.GetUID()),
 		).
 		WithVolumeMounts(corev1ac.VolumeMount().
 			WithName(gatherPlanVolumeName).
@@ -330,9 +330,9 @@ func (r *ArcanumManager) gatherJob(
 		WithConfigMap(corev1ac.ConfigMapVolumeSource().
 			WithName(gatherPlanConfigMapName(name)))
 
-	return batchv1ac.Job(gatherJobName(name, hash), arcanum.GetNamespace()).
+	return batchv1ac.Job(gatherJobName(name, hash), credentialConfig.GetNamespace()).
 		WithLabels(labels).
-		WithOwnerReferences(controllerRef(arcanum)).
+		WithOwnerReferences(controllerRef(credentialConfig)).
 		WithSpec(batchv1ac.JobSpec().
 			WithBackoffLimit(gatherBackoffLimit).
 			WithTemplate(corev1ac.PodTemplateSpec().
@@ -350,23 +350,23 @@ func (r *ArcanumManager) gatherJob(
 
 // gatherPlanConfigMap holds the plan the Job reads off its volume. The key is
 // the file name the container mounts, so the two have to agree.
-func gatherPlanConfigMap(arcanum *arcanav1.Arcanum, plan gather.Plan) (*corev1ac.ConfigMapApplyConfiguration, error) {
+func gatherPlanConfigMap(credentialConfig *custosv1.CredentialConfig, plan gather.Plan) (*corev1ac.ConfigMapApplyConfiguration, error) {
 	raw, err := plan.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshalling plan: %w", err)
 	}
 
-	return corev1ac.ConfigMap(gatherPlanConfigMapName(arcanum.GetName()), arcanum.GetNamespace()).
-		WithLabels(ownershipLabels(arcanum)).
-		WithOwnerReferences(controllerRef(arcanum)).
+	return corev1ac.ConfigMap(gatherPlanConfigMapName(credentialConfig.GetName()), credentialConfig.GetNamespace()).
+		WithLabels(ownershipLabels(credentialConfig)).
+		WithOwnerReferences(controllerRef(credentialConfig)).
 		WithData(map[string]string{gatherPlanFileName: string(raw)}), nil
 }
 
 // startGather writes the plan and then the Job that reads it. The order
 // matters: a Job scheduled before its ConfigMap exists sits in
 // ContainerCreating until the kubelet retries.
-func (r *ArcanumManager) startGather(ctx context.Context, arcanum *arcanav1.Arcanum, plan gather.Plan, hash string) error {
-	cm, err := gatherPlanConfigMap(arcanum, plan)
+func (r *CredentialConfigManager) startGather(ctx context.Context, credentialConfig *custosv1.CredentialConfig, plan gather.Plan, hash string) error {
+	cm, err := gatherPlanConfigMap(credentialConfig, plan)
 	if err != nil {
 		return err
 	}
@@ -375,33 +375,33 @@ func (r *ArcanumManager) startGather(ctx context.Context, arcanum *arcanav1.Arca
 		return fmt.Errorf("applying plan ConfigMap: %w", err)
 	}
 
-	if err := r.Apply(ctx, r.gatherJob(arcanum, plan, hash), fieldOwner, client.ForceOwnership); err != nil {
+	if err := r.Apply(ctx, r.gatherJob(credentialConfig, plan, hash), fieldOwner, client.ForceOwnership); err != nil {
 		return fmt.Errorf("applying gather Job: %w", err)
 	}
 
 	return nil
 }
 
-// deleteGatherJobs removes every gather Job this Arcanum has.
+// deleteGatherJobs removes every gather Job this CredentialConfig has.
 //
 // Safe once the values are in hand, because a settled gather is read back from
 // the gathered Secret and never from the Job. The gathered Secret and the
-// result ConfigMap are owned by the Arcanum rather than the Job, so they stay.
-func (r *ArcanumManager) deleteGatherJobs(ctx context.Context, arcanum *arcanav1.Arcanum) error {
-	return r.deleteStaleGatherJobs(ctx, arcanum, "")
+// result ConfigMap are owned by the CredentialConfig rather than the Job, so they stay.
+func (r *CredentialConfigManager) deleteGatherJobs(ctx context.Context, credentialConfig *custosv1.CredentialConfig) error {
+	return r.deleteStaleGatherJobs(ctx, credentialConfig, "")
 }
 
-// deleteStaleGatherJobs removes this Arcanum's gather Jobs other than keep.
+// deleteStaleGatherJobs removes this CredentialConfig's gather Jobs other than keep.
 //
 // A Job's spec is immutable, so a changed plan is a new Job under a new name
 // rather than an edit. Without this every spec change would leave another one
 // behind until the namespace is full of them.
-func (r *ArcanumManager) deleteStaleGatherJobs(ctx context.Context, arcanum *arcanav1.Arcanum, keep string) error {
+func (r *CredentialConfigManager) deleteStaleGatherJobs(ctx context.Context, credentialConfig *custosv1.CredentialConfig, keep string) error {
 	jobs := &batchv1.JobList{}
 
 	err := r.List(ctx, jobs,
-		client.InNamespace(arcanum.GetNamespace()),
-		client.MatchingLabels{arcanumNameLabel: arcanum.GetName()})
+		client.InNamespace(credentialConfig.GetNamespace()),
+		client.MatchingLabels{credentialConfigNameLabel: credentialConfig.GetName()})
 	if err != nil {
 		return fmt.Errorf("listing gather jobs: %w", err)
 	}
@@ -427,11 +427,11 @@ func (r *ArcanumManager) deleteStaleGatherJobs(ctx context.Context, arcanum *arc
 // gatheredValues reads what the Job left behind. The second return says
 // whether the Secret was there at all, which is a state and not an error: it
 // is how a gather that has not run yet looks.
-func (r *ArcanumManager) gatheredValues(ctx context.Context, arcanum *arcanav1.Arcanum) (map[string]string, bool, error) {
+func (r *CredentialConfigManager) gatheredValues(ctx context.Context, credentialConfig *custosv1.CredentialConfig) (map[string]string, bool, error) {
 	secret := &corev1.Secret{}
 	key := client.ObjectKey{
-		Name:      gatheredSecretName(arcanum.GetName()),
-		Namespace: arcanum.GetNamespace(),
+		Name:      gatheredSecretName(credentialConfig.GetName()),
+		Namespace: credentialConfig.GetNamespace(),
 	}
 
 	err := r.Get(ctx, key, secret)
@@ -459,11 +459,11 @@ func (r *ArcanumManager) gatheredValues(ctx context.Context, arcanum *arcanav1.A
 // The fallback belongs to the caller because the two callers are in different
 // situations: one has a Job that gave up, the other a Job that claimed success
 // and left nothing behind.
-func (r *ArcanumManager) gatherResultMessage(ctx context.Context, arcanum *arcanav1.Arcanum, fallback string) string {
+func (r *CredentialConfigManager) gatherResultMessage(ctx context.Context, credentialConfig *custosv1.CredentialConfig, fallback string) string {
 	cm := &corev1.ConfigMap{}
 	key := client.ObjectKey{
-		Name:      gatherResultConfigMapName(arcanum.GetName()),
-		Namespace: arcanum.GetNamespace(),
+		Name:      gatherResultConfigMapName(credentialConfig.GetName()),
+		Namespace: credentialConfig.GetNamespace(),
 	}
 
 	if err := r.Get(ctx, key, cm); err != nil {

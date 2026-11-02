@@ -1,5 +1,5 @@
 resources:
-- bases/arcana.helmetica.io_arcana.yaml
+- bases/custos.helmetica.io_credentialconfigs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 configurations:

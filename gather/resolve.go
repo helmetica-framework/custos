@@ -40,7 +40,7 @@ type Resolver struct {
 	PodPoll time.Duration
 }
 
-// podWait is how long this entry gets to wait for its pod: what the Arcanum
+// podWait is how long this entry gets to wait for its pod: what the CredentialConfig
 // asked for, or the run's own default when it asked for nothing.
 func (r *Resolver) podWait(entry Entry) time.Duration {
 	if entry.PodWait != nil {
@@ -95,7 +95,7 @@ func (r *Resolver) Resolve(ctx context.Context, plan Plan) (map[string]string, e
 // a data key or whatever a JSONPath selects.
 //
 // Every error names the entry key and the object and never the value. These
-// messages end up on the Arcanum's status, which anyone who can read the
+// messages end up on the CredentialConfig's status, which anyone who can read the
 // claim can read too.
 func (r *Resolver) resolveObjectRef(ctx context.Context, namespace string, entry Entry) (string, error) {
 	slog.Info("reading object",

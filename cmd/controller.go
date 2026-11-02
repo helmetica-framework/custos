@@ -29,7 +29,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	//+kubebuilder:scaffold:imports
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/controllers"
 	"github.com/helmetica-framework/custos/gather"
 )
@@ -80,7 +80,7 @@ var controllerCmd = &cobra.Command{
 
 func newScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-	utilruntime.Must(arcanav1.AddToScheme(scheme))
+	utilruntime.Must(custosv1.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 	return scheme
@@ -149,7 +149,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 		})
 	}
 
-	arcanumLabelExists, err := labels.NewRequirement(gather.ArcanumNameLabel, selection.Exists, nil)
+	credentialConfigLabelExists, err := labels.NewRequirement(gather.CredentialConfigNameLabel, selection.Exists, nil)
 	if err != nil {
 		return fmt.Errorf("building the secret cache selector: %w", err)
 	}
@@ -160,7 +160,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "custos.arcana.helmetica.io",
+		LeaderElectionID:       "custos.helmetica.io",
 
 		LeaderElectionReleaseOnCancel: true,
 		Cache: cache.Options{
@@ -168,7 +168,7 @@ func runController(cmd *cobra.Command, _ []string) error {
 				// Caching every Secret in the cluster is a lot of memory for
 				// nothing. Custos only ever watches Secrets it stamped.
 				&corev1.Secret{}: {
-					Label: labels.SelectorFromSet(labels.Set{}).Add(*arcanumLabelExists),
+					Label: labels.SelectorFromSet(labels.Set{}).Add(*credentialConfigLabelExists),
 				},
 			},
 		},
@@ -179,17 +179,17 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 	lifetimeCtx := cmd.Context()
 
-	am := controllers.ArcanumManager{
+	am := controllers.CredentialConfigManager{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorder("arcanum-controller"),
-		Log:         mgr.GetLogger().WithName("arcanum-controller"),
+		Recorder:    mgr.GetEventRecorder("credentialconfig-controller"),
+		Log:         mgr.GetLogger().WithName("credentialconfig-controller"),
 		APIReader:   mgr.GetAPIReader(),
 		GatherImage: gatherImage,
 	}
 
-	if err := am.SetupWithManager("arcanum", mgr); err != nil {
-		return fmt.Errorf("unable to create Arcanum controller: %w", err)
+	if err := am.SetupWithManager("credentialconfig", mgr); err != nil {
+		return fmt.Errorf("unable to create CredentialConfig controller: %w", err)
 	}
 
 	//+kubebuilder:scaffold:builder
