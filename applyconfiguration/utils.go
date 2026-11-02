@@ -15,13 +15,13 @@ import (
 // apply configuration type exists for the given GroupVersionKind.
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
-	// Group=arcana.helmetica.io, Version=v1
-	case v1.SchemeGroupVersion.WithKind("Arcanum"):
-		return &apiv1.ArcanumApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("ArcanumSpec"):
-		return &apiv1.ArcanumSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("ArcanumStatus"):
-		return &apiv1.ArcanumStatusApplyConfiguration{}
+	// Group=custos.helmetica.io, Version=v1
+	case v1.SchemeGroupVersion.WithKind("CredentialConfig"):
+		return &apiv1.CredentialConfigApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CredentialConfigSpec"):
+		return &apiv1.CredentialConfigSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CredentialConfigStatus"):
+		return &apiv1.CredentialConfigStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("CredentialsSpec"):
 		return &apiv1.CredentialsSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("TargetSpec"):

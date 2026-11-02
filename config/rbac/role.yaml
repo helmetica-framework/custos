@@ -26,30 +26,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - arcana.helmetica.io
-  resources:
-  - arcana
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - arcana.helmetica.io
-  resources:
-  - arcana/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - arcana.helmetica.io
-  resources:
-  - arcana/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
   - batch
   resources:
   - jobs
@@ -60,6 +36,30 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - custos.helmetica.io
+  resources:
+  - credentialconfigs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - custos.helmetica.io
+  resources:
+  - credentialconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - custos.helmetica.io
+  resources:
+  - credentialconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - events.k8s.io
   resources:

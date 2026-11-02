@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
-	arcanaacv1 "github.com/helmetica-framework/custos/applyconfiguration/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
+	custosacv1 "github.com/helmetica-framework/custos/applyconfiguration/api/v1"
 )
 
 const (
@@ -30,8 +30,8 @@ const (
 	suspendedMessage          = "reconciliation suspended"
 )
 
-// ArcanumManager reconciles Arcanum objects.
-type ArcanumManager struct {
+// CredentialConfigManager reconciles CredentialConfig objects.
+type CredentialConfigManager struct {
 	client.Client
 	// APIReader bypasses the cache. Reads that must not be served stale, and
 	// reads of kinds custos has no business starting an informer for, go
@@ -49,7 +49,7 @@ type ArcanumManager struct {
 // well as the phase itself, because the status write is a single apply and a
 // second return value per field would be four more.
 type phase struct {
-	Phase           arcanav1.ArcanumPhase
+	Phase           custosv1.CredentialConfigPhase
 	Message         string
 	GatheredHash    string
 	GatherJobName   string
@@ -61,65 +61,65 @@ type phase struct {
 	RequeueAfter time.Duration
 }
 
-// +kubebuilder:rbac:groups=arcana.helmetica.io,resources=arcana,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=arcana.helmetica.io,resources=arcana/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=arcana.helmetica.io,resources=arcana/finalizers,verbs=update
+// +kubebuilder:rbac:groups=custos.helmetica.io,resources=credentialconfigs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=custos.helmetica.io,resources=credentialconfigs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=custos.helmetica.io,resources=credentialconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch;delete
 
-// Reconcile drives an Arcanum's status to reflect desiredPhase, and takes the
-// target Secret back when the Arcanum goes away.
+// Reconcile drives an CredentialConfig's status to reflect desiredPhase, and takes the
+// target Secret back when the CredentialConfig goes away.
 //
 // The deletion branch runs before anything else. A Secret in the claim
 // namespace cannot carry an owner reference, so the finalizer is the only
 // thing that removes it.
-func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("arcanum", req.NamespacedName)
+func (r *CredentialConfigManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := r.Log.WithValues("credentialconfig", req.NamespacedName)
 
-	arcanum := &arcanav1.Arcanum{}
-	err := r.Get(ctx, req.NamespacedName, arcanum)
+	credentialConfig := &custosv1.CredentialConfig{}
+	err := r.Get(ctx, req.NamespacedName, credentialConfig)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(1).Info("arcanum is gone, nothing to do")
+			log.V(1).Info("credential config is gone, nothing to do")
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
 	log.V(1).Info("reconciling",
-		"generation", arcanum.Generation,
-		"phase", arcanum.Status.Phase)
+		"generation", credentialConfig.Generation,
+		"phase", credentialConfig.Status.Phase)
 
-	if !arcanum.GetDeletionTimestamp().IsZero() {
-		log.V(1).Info("arcanum is being deleted, cleaning finalizer")
+	if !credentialConfig.GetDeletionTimestamp().IsZero() {
+		log.V(1).Info("credential config is being deleted, cleaning finalizer")
 
-		if controllerutil.ContainsFinalizer(arcanum, targetFinalizer) {
-			err := r.cleanupTargetSecret(ctx, arcanum)
+		if controllerutil.ContainsFinalizer(credentialConfig, targetFinalizer) {
+			err := r.cleanupTargetSecret(ctx, credentialConfig)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("removing target secret: %w", err)
 			}
 		}
 
-		patch := client.MergeFromWithOptions(arcanum.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		patch := client.MergeFromWithOptions(credentialConfig.DeepCopy(), client.MergeFromWithOptimisticLock{})
 
 		// With the lock there's a chance for conflicts.
-		if !controllerutil.RemoveFinalizer(arcanum, targetFinalizer) {
+		if !controllerutil.RemoveFinalizer(credentialConfig, targetFinalizer) {
 			return ctrl.Result{}, nil
 		}
 
-		return ctrl.Result{}, r.Patch(ctx, arcanum, patch)
+		return ctrl.Result{}, r.Patch(ctx, credentialConfig, patch)
 	}
 
-	want, err := r.desiredPhase(ctx, arcanum)
+	want, err := r.desiredPhase(ctx, credentialConfig)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// A retry lives here rather than in the status, so both exits below have to
-	// carry it. Dropping it on the settled path leaves the Arcanum at Failed
+	// carry it. Dropping it on the settled path leaves the CredentialConfig at Failed
 	// with nothing left to wake it.
 	result := ctrl.Result{RequeueAfter: want.RequeueAfter}
 
@@ -129,24 +129,24 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Every recorded field is compared, or a decision that only moved the Job
 	// name would be made every pass and written none of them.
-	if arcanum.Status.Phase == want.Phase &&
-		arcanum.Status.ObservedGeneration == arcanum.Generation &&
-		arcanum.Status.Message == want.Message &&
-		arcanum.Status.GatheredHash == want.GatheredHash &&
-		arcanum.Status.GatherJobName == want.GatherJobName &&
-		arcanum.Status.SecretName == want.SecretName &&
-		arcanum.Status.SecretNamespace == want.SecretNamespace {
+	if credentialConfig.Status.Phase == want.Phase &&
+		credentialConfig.Status.ObservedGeneration == credentialConfig.Generation &&
+		credentialConfig.Status.Message == want.Message &&
+		credentialConfig.Status.GatheredHash == want.GatheredHash &&
+		credentialConfig.Status.GatherJobName == want.GatherJobName &&
+		credentialConfig.Status.SecretName == want.SecretName &&
+		credentialConfig.Status.SecretNamespace == want.SecretNamespace {
 		return result, nil
 	}
 
-	if arcanum.Status.Phase != want.Phase {
-		log.Info("arcanum phase changed", "from", arcanum.Status.Phase, "to", want.Phase)
+	if credentialConfig.Status.Phase != want.Phase {
+		log.Info("credential config phase changed", "from", credentialConfig.Status.Phase, "to", want.Phase)
 	}
 
-	status := arcanaacv1.Arcanum(arcanum.GetName(), arcanum.GetNamespace()).
-		WithStatus(arcanaacv1.ArcanumStatus().
+	status := custosacv1.CredentialConfig(credentialConfig.GetName(), credentialConfig.GetNamespace()).
+		WithStatus(custosacv1.CredentialConfigStatus().
 			WithPhase(want.Phase).
-			WithObservedGeneration(arcanum.Generation).
+			WithObservedGeneration(credentialConfig.Generation).
 			WithMessage(want.Message).
 			WithGatheredHash(want.GatheredHash).
 			WithGatherJobName(want.GatherJobName).
@@ -154,7 +154,7 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			WithSecretNamespace(want.SecretNamespace))
 
 	if err := r.Status().Apply(ctx, status, fieldOwner, client.ForceOwnership); err != nil {
-		return ctrl.Result{}, fmt.Errorf("applying arcanum status: %w", err)
+		return ctrl.Result{}, fmt.Errorf("applying credential config status: %w", err)
 	}
 
 	return result, nil
@@ -162,40 +162,40 @@ func (r *ArcanumManager) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 // desiredPhase runs one pass of the whole flow and reports what the status
 // should say. Everything it provisions sits behind the suspend check, so
-// suspending an Arcanum leaves a Secret it already wrote in place.
+// suspending an CredentialConfig leaves a Secret it already wrote in place.
 //
 // Most failures here are the phase rather than a returned error: a mapping
 // that cannot render, a claim that is not there and a target name already
 // taken are all things a retry cannot fix, and returning an error would have
 // the queue back off over them forever.
-func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arcanum) (phase, error) {
+func (r *CredentialConfigManager) desiredPhase(ctx context.Context, credentialConfig *custosv1.CredentialConfig) (phase, error) {
 	// Carried forward, because a pass that holds or fails must not wipe what
 	// an earlier one recorded. cleanupTargetSecret finds the Secret through
 	// status.SecretName, so losing that would strand it.
 	want := phase{
-		GatheredHash:    arcanum.Status.GatheredHash,
-		GatherJobName:   arcanum.Status.GatherJobName,
-		SecretName:      arcanum.Status.SecretName,
-		SecretNamespace: arcanum.Status.SecretNamespace,
+		GatheredHash:    credentialConfig.Status.GatheredHash,
+		GatherJobName:   credentialConfig.Status.GatherJobName,
+		SecretName:      credentialConfig.Status.SecretName,
+		SecretNamespace: credentialConfig.Status.SecretNamespace,
 	}
 
-	log := r.arcanumLogger(arcanum)
+	log := r.credentialConfigLogger(credentialConfig)
 
-	if ptr.Deref(arcanum.Spec.Suspend, false) {
+	if ptr.Deref(credentialConfig.Spec.Suspend, false) {
 		log.V(1).Info("suspended, leaving everything as it is")
 
-		want.Phase = arcanav1.ArcanumPhasePending
+		want.Phase = custosv1.CredentialConfigPhasePending
 		want.Message = suspendedMessage
 
 		return want, nil
 	}
 
-	md, hasClaim, err := r.instanceContext(ctx, arcanum)
+	md, hasClaim, err := r.instanceContext(ctx, credentialConfig)
 	if err != nil {
 		return failedPhase(want, err), nil
 	}
 
-	mapping := arcanum.Spec.Credentials.ValueMapping
+	mapping := credentialConfig.Spec.Credentials.ValueMapping
 
 	if err := validate(mapping, hasClaim); err != nil {
 		log.Info("value mapping is invalid, nothing will be created", "reason", err.Error())
@@ -207,7 +207,7 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 	// otherwise leave the Secret behind in a namespace custos no longer has
 	// any reason to visit.
 	if hasClaim {
-		if err := r.ensureTargetFinalizer(ctx, arcanum); err != nil {
+		if err := r.ensureTargetFinalizer(ctx, credentialConfig); err != nil {
 			return want, fmt.Errorf("adding finalizer: %w", err)
 		}
 	}
@@ -215,7 +215,7 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 	var gathered map[string]string
 
 	if needsGather(mapping) {
-		values, hold, err := r.gatherValues(ctx, arcanum, md, mapping, &want)
+		values, hold, err := r.gatherValues(ctx, credentialConfig, md, mapping, &want)
 		if err != nil || hold {
 			return want, err
 		}
@@ -235,26 +235,26 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 
 	ns := targetNamespace(md, hasClaim)
 
-	if err := r.applyTargetSecret(ctx, arcanum, ns, !hasClaim, rendered); err != nil {
+	if err := r.applyTargetSecret(ctx, credentialConfig, ns, !hasClaim, rendered); err != nil {
 		log.Info("target secret was not written", "namespace", ns, "reason", err.Error())
 
 		return failedPhase(want, err), nil
 	}
 
 	log.V(1).Info("credentials applied",
-		"namespace", ns, "name", arcanum.Spec.Target.Name, "keys", len(rendered))
+		"namespace", ns, "name", credentialConfig.Spec.Target.Name, "keys", len(rendered))
 
 	// Failing to clean up does not un-write the Secret, so it is reported and
 	// tried again next pass rather than losing the Ready this pass earned.
-	if err := r.deleteGatherJobs(ctx, arcanum); err != nil {
+	if err := r.deleteGatherJobs(ctx, credentialConfig); err != nil {
 		log.Info("could not clean up the gather jobs", "reason", err.Error())
 	} else {
 		want.GatherJobName = ""
 	}
 
-	want.Phase = arcanav1.ArcanumPhaseReady
+	want.Phase = custosv1.CredentialConfigPhaseReady
 	want.Message = credentialsAppliedMessage
-	want.SecretName = arcanum.Spec.Target.Name
+	want.SecretName = credentialConfig.Spec.Target.Name
 	want.SecretNamespace = ns
 
 	return want, nil
@@ -263,11 +263,11 @@ func (r *ArcanumManager) desiredPhase(ctx context.Context, arcanum *arcanav1.Arc
 // gatherValues runs the gather stage. It returns hold when the pass has to
 // stop where it is, either waiting on a Job or reporting a failed one, having
 // already written what to say into want.
-func (r *ArcanumManager) gatherValues(
+func (r *CredentialConfigManager) gatherValues(
 	ctx context.Context,
-	arcanum *arcanav1.Arcanum,
+	credentialConfig *custosv1.CredentialConfig,
 	md metadata,
-	mapping map[string]arcanav1.ValueSource,
+	mapping map[string]custosv1.ValueSource,
 	want *phase,
 ) (values map[string]string, hold bool, err error) {
 	plan, err := buildPlan(mapping, md)
@@ -279,24 +279,24 @@ func (r *ArcanumManager) gatherValues(
 
 	// The refresh annotation is hashed in, so changing it is what makes this
 	// a different Job and re-runs a gather that has already settled.
-	hash := gatherHash(plan, arcanum.GetAnnotations()[refreshAnnotation])
-	jobName := gatherJobName(arcanum.GetName(), hash)
+	hash := gatherHash(plan, credentialConfig.GetAnnotations()[refreshAnnotation])
+	jobName := gatherJobName(credentialConfig.GetName(), hash)
 
-	log := r.arcanumLogger(arcanum).WithValues("job", jobName, "hash", hash)
+	log := r.credentialConfigLogger(credentialConfig).WithValues("job", jobName, "hash", hash)
 
 	// Pruned before anything is decided, so a changed plan does not leave the
 	// Job for the old one running alongside the new one.
-	if err := r.deleteStaleGatherJobs(ctx, arcanum, jobName); err != nil {
+	if err := r.deleteStaleGatherJobs(ctx, credentialConfig, jobName); err != nil {
 		return nil, true, err
 	}
 
-	gathered, found, err := r.gatheredValues(ctx, arcanum)
+	gathered, found, err := r.gatheredValues(ctx, credentialConfig)
 	if err != nil {
 		return nil, true, err
 	}
 
 	// The values in hand came from this very plan, so there is nothing to run.
-	if found && arcanum.Status.GatheredHash == hash {
+	if found && credentialConfig.Status.GatheredHash == hash {
 		log.V(1).Info("gathered values are current", "values", len(gathered))
 
 		return gathered, false, nil
@@ -306,7 +306,7 @@ func (r *ArcanumManager) gatherValues(
 
 	job := &batchv1.Job{}
 
-	err = r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: arcanum.GetNamespace()}, job)
+	err = r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: credentialConfig.GetNamespace()}, job)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, true, fmt.Errorf("getting gather job: %w", err)
 	}
@@ -314,11 +314,11 @@ func (r *ArcanumManager) gatherValues(
 	if apierrors.IsNotFound(err) {
 		log.Info("starting gather job", "entries", len(plan.Entries))
 
-		if err := r.startGather(ctx, arcanum, plan, hash); err != nil {
+		if err := r.startGather(ctx, credentialConfig, plan, hash); err != nil {
 			return nil, true, err
 		}
 
-		want.Phase = arcanav1.ArcanumPhasePending
+		want.Phase = custosv1.CredentialConfigPhasePending
 		want.Message = gatheringMessage
 
 		return nil, true, nil
@@ -327,8 +327,8 @@ func (r *ArcanumManager) gatherValues(
 	// Above the switch, because a Job that gave up also has failed pods and
 	// would otherwise be read as one that is still trying.
 	if jobGaveUp(job) {
-		want.Phase = arcanav1.ArcanumPhaseFailed
-		want.Message = r.gatherResultMessage(ctx, arcanum,
+		want.Phase = custosv1.CredentialConfigPhaseFailed
+		want.Message = r.gatherResultMessage(ctx, credentialConfig,
 			fmt.Sprintf("gather job %s failed and left no result, see its logs", jobName))
 
 		log.Info("gather job gave up", "attempts", job.Status.Failed, "reason", want.Message)
@@ -341,8 +341,8 @@ func (r *ArcanumManager) gatherValues(
 		// A Job that finished without leaving values either had its Secret
 		// removed, or exited zero on a failure. It reports what went wrong
 		// either way, and that beats rendering an empty credential.
-		want.Phase = arcanav1.ArcanumPhaseFailed
-		want.Message = r.gatherResultMessage(ctx, arcanum,
+		want.Phase = custosv1.CredentialConfigPhaseFailed
+		want.Message = r.gatherResultMessage(ctx, credentialConfig,
 			fmt.Sprintf("gather job %s succeeded but left no values", jobName))
 
 		log.Info("gather job finished without values", "reason", want.Message)
@@ -359,8 +359,8 @@ func (r *ArcanumManager) gatherValues(
 	case job.Status.Failed > 0:
 		// An attempt failed and another is coming. The reason on a Pending is
 		// more use than Failed at something that is about to fix itself.
-		want.Phase = arcanav1.ArcanumPhasePending
-		want.Message = r.gatherResultMessage(ctx, arcanum, gatheringMessage)
+		want.Phase = custosv1.CredentialConfigPhasePending
+		want.Message = r.gatherResultMessage(ctx, credentialConfig, gatheringMessage)
 
 		log.Info("gather attempt failed, another is coming",
 			"attempts", job.Status.Failed, "reason", want.Message)
@@ -370,30 +370,30 @@ func (r *ArcanumManager) gatherValues(
 	default:
 		log.V(1).Info("gather job is still running")
 
-		want.Phase = arcanav1.ArcanumPhasePending
+		want.Phase = custosv1.CredentialConfigPhasePending
 		want.Message = gatheringMessage
 
 		return nil, true, nil
 	}
 }
 
-// arcanumLogger names the Arcanum every line below Reconcile is about. The
+// credentialConfigLogger names the CredentialConfig every line below Reconcile is about. The
 // controller-runtime request logger does not reach here, because desiredPhase
 // takes the object rather than the request.
-func (r *ArcanumManager) arcanumLogger(arcanum *arcanav1.Arcanum) logr.Logger {
-	return r.Log.WithValues("arcanum", client.ObjectKeyFromObject(arcanum))
+func (r *CredentialConfigManager) credentialConfigLogger(credentialConfig *custosv1.CredentialConfig) logr.Logger {
+	return r.Log.WithValues("credentialconfig", client.ObjectKeyFromObject(credentialConfig))
 }
 
 // claimFor reads the claim only when the mapping actually needs it, so an
-// Arcanum that never mentions the claim does not fail because that one object
+// CredentialConfig that never mentions the claim does not fail because that one object
 // happens to be unreadable.
-func (r *ArcanumManager) claimFor(
+func (r *CredentialConfigManager) claimFor(
 	ctx context.Context,
 	md metadata,
-	mapping map[string]arcanav1.ValueSource,
+	mapping map[string]custosv1.ValueSource,
 ) (*unstructured.Unstructured, error) {
 	for _, source := range mapping {
-		if source.Source == arcanav1.SourceClaimParam {
+		if source.Source == custosv1.SourceClaimParam {
 			return r.claimObject(ctx, md)
 		}
 	}
@@ -406,26 +406,26 @@ func (r *ArcanumManager) claimFor(
 // A merge patch rather than an apply, because an apply configuration cannot
 // say "add one entry to this list" without claiming the whole list, and the
 // list belongs to whoever else has put a finalizer on this object.
-func (r *ArcanumManager) ensureTargetFinalizer(ctx context.Context, arcanum *arcanav1.Arcanum) error {
-	base := arcanum.DeepCopy()
+func (r *CredentialConfigManager) ensureTargetFinalizer(ctx context.Context, credentialConfig *custosv1.CredentialConfig) error {
+	base := credentialConfig.DeepCopy()
 
-	if !controllerutil.AddFinalizer(arcanum, targetFinalizer) {
+	if !controllerutil.AddFinalizer(credentialConfig, targetFinalizer) {
 		return nil
 	}
 
-	return r.Patch(ctx, arcanum, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	return r.Patch(ctx, credentialConfig, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // failedPhase reports err on the status rather than to the queue, keeping
 // whatever the pass had already recorded.
 func failedPhase(want phase, err error) phase {
-	want.Phase = arcanav1.ArcanumPhaseFailed
+	want.Phase = custosv1.CredentialConfigPhaseFailed
 	want.Message = err.Error()
 
 	return want
 }
 
-// targetSecretMapFunc maps a Secret back to the Arcanum that wrote it.
+// targetSecretMapFunc maps a Secret back to the CredentialConfig that wrote it.
 //
 // A target in the claim namespace carries no owner reference, so Owns has
 // nothing to follow and only this makes an edited or deleted Secret heal
@@ -433,7 +433,7 @@ func failedPhase(want phase, err error) phase {
 func targetSecretMapFunc(_ context.Context, obj client.Object) []reconcile.Request {
 	labels := obj.GetLabels()
 
-	name, namespace := labels[arcanumNameLabel], labels[arcanumNamespaceLabel]
+	name, namespace := labels[credentialConfigNameLabel], labels[credentialConfigNamespaceLabel]
 	if name == "" || namespace == "" {
 		return nil
 	}
@@ -444,13 +444,13 @@ func targetSecretMapFunc(_ context.Context, obj client.Object) []reconcile.Reque
 }
 
 // SetupWithManager wires the controller. The Owns lines cover the gather Job,
-// its ConfigMaps, the gathered Secret and a target in the Arcanum's own
+// its ConfigMaps, the gathered Secret and a target in the CredentialConfig's own
 // namespace. The plain Secret watch is there for the one case an owner
 // reference cannot express, a target in the claim namespace.
-func (r *ArcanumManager) SetupWithManager(name string, mgr ctrl.Manager) error {
+func (r *CredentialConfigManager) SetupWithManager(name string, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		For(&arcanav1.Arcanum{}).
+		For(&custosv1.CredentialConfig{}).
 		Owns(&batchv1.Job{}).
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.ConfigMap{}).

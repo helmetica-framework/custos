@@ -181,14 +181,14 @@ func TestWriteResult_OverwritesAnEarlierResult(t *testing.T) {
 	assert.Empty(t, got.Data[ResultMessageKey])
 }
 
-// Deleting the Arcanum has to take the result ConfigMap with it. The Job is
+// Deleting the CredentialConfig has to take the result ConfigMap with it. The Job is
 // the only process that ever writes this object, so it is the only one that
 // can put the reference on.
 func TestWriteResult_CarriesTheOwnerReference(t *testing.T) {
 	c := newResolver().Client
 	owner := metav1ac.OwnerReference().
-		WithAPIVersion("arcana.helmetica.io/v1").
-		WithKind("Arcanum").
+		WithAPIVersion("custos.helmetica.io/v1").
+		WithKind("CredentialConfig").
 		WithName("sample").
 		WithUID(types.UID("d6f7a1b2-0000-4000-8000-000000000001")).
 		WithController(true)
@@ -315,7 +315,7 @@ func TestResolve_ExecHonoursTheDefaultContainerAnnotation(t *testing.T) {
 	assert.Equal(t, "postgres", exec.gotContainer)
 }
 
-// The Arcanum is more specific than the pod's own hint, so it wins.
+// The CredentialConfig is more specific than the pod's own hint, so it wins.
 func TestResolve_ExecPrefersTheNamedContainerOverTheAnnotation(t *testing.T) {
 	target := pod("postgres-0", true, map[string]string{"app": "postgres"}, "postgres", "exporter")
 	target.Annotations = map[string]string{defaultContainerAnnotation: "postgres"}
@@ -334,7 +334,7 @@ func TestResolve_ExecPrefersTheNamedContainerOverTheAnnotation(t *testing.T) {
 
 // An annotation left behind by a container that no longer exists would
 // otherwise fail the exec with an API error naming something nobody wrote in
-// the Arcanum.
+// the CredentialConfig.
 func TestResolve_ExecIgnoresADefaultContainerThatIsNotThere(t *testing.T) {
 	target := pod("postgres-0", true, map[string]string{"app": "postgres"}, "postgres", "exporter")
 	target.Annotations = map[string]string{defaultContainerAnnotation: "long-gone"}
@@ -351,7 +351,7 @@ func TestResolve_ExecIgnoresADefaultContainerThatIsNotThere(t *testing.T) {
 	assert.Equal(t, "postgres", exec.gotContainer)
 }
 
-// The Arcanum is more specific than the flag the Job was started with, so an
+// The CredentialConfig is more specific than the flag the Job was started with, so an
 // entry that names its own wait gets it.
 func TestResolve_ExecEntryWaitOverridesTheResolverDefault(t *testing.T) {
 	r := newResolver(pod("postgres-0", false, map[string]string{"app": "postgres"}))

@@ -25,7 +25,7 @@ import (
 const (
 	// defaultContainerAnnotation is the convention kubectl exec follows when
 	// no container is named. Honouring it lets a workload that puts a sidecar
-	// first say so once, rather than in every Arcanum that execs into it.
+	// first say so once, rather than in every CredentialConfig that execs into it.
 	defaultContainerAnnotation = "kubectl.kubernetes.io/default-container"
 
 	// defaultPodPoll is how often selectPod looks while it waits. Resolver's
@@ -246,7 +246,7 @@ func (e *PodExecutor) getExec(namespace, pod, container string, command []string
 
 // execute streams the command and returns its stdout. A failure carries
 // stderr and never stdout, because stdout is the credential and this error
-// ends up on the Arcanum's status.
+// ends up on the CredentialConfig's status.
 func (e *PodExecutor) execute(ctx context.Context, exec remotecommand.Executor) (string, error) {
 	var stdout, stderr bytes.Buffer
 

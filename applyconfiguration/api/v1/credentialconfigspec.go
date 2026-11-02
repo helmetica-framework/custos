@@ -2,35 +2,35 @@
 
 package v1
 
-// ArcanumSpecApplyConfiguration represents a declarative configuration of the ArcanumSpec type for use
+// CredentialConfigSpecApplyConfiguration represents a declarative configuration of the CredentialConfigSpec type for use
 // with apply.
 //
-// ArcanumSpec describes one Secret custos assembles: where every value comes
+// CredentialConfigSpec describes one Secret custos assembles: where every value comes
 // from, and what the Secret is called.
-type ArcanumSpecApplyConfiguration struct {
-	// Suspend pauses reconciliation. A suspended arcanum holds at Pending and
+type CredentialConfigSpecApplyConfiguration struct {
+	// Suspend pauses reconciliation. A suspended credential config holds at Pending and
 	// custos leaves everything it owns untouched, which is the escape hatch
 	// when the controller and the cluster disagree.
 	Suspend *bool `json:"suspend,omitempty"`
 	// Target names the Secret. It is required because a Secret custos cannot
 	// name is a Secret nobody can consume.
 	Target *TargetSpecApplyConfiguration `json:"target,omitempty"`
-	// Credentials holds the value mapping. An arcanum with none is legal and
+	// Credentials holds the value mapping. A credential config with none is legal and
 	// produces an empty Secret, which is how a chart can declare the Secret
 	// before it knows what goes in it.
 	Credentials *CredentialsSpecApplyConfiguration `json:"credentials,omitempty"`
 }
 
-// ArcanumSpecApplyConfiguration constructs a declarative configuration of the ArcanumSpec type for use with
+// CredentialConfigSpecApplyConfiguration constructs a declarative configuration of the CredentialConfigSpec type for use with
 // apply.
-func ArcanumSpec() *ArcanumSpecApplyConfiguration {
-	return &ArcanumSpecApplyConfiguration{}
+func CredentialConfigSpec() *CredentialConfigSpecApplyConfiguration {
+	return &CredentialConfigSpecApplyConfiguration{}
 }
 
 // WithSuspend sets the Suspend field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Suspend field is set to the value of the last call.
-func (b *ArcanumSpecApplyConfiguration) WithSuspend(value bool) *ArcanumSpecApplyConfiguration {
+func (b *CredentialConfigSpecApplyConfiguration) WithSuspend(value bool) *CredentialConfigSpecApplyConfiguration {
 	b.Suspend = &value
 	return b
 }
@@ -38,7 +38,7 @@ func (b *ArcanumSpecApplyConfiguration) WithSuspend(value bool) *ArcanumSpecAppl
 // WithTarget sets the Target field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Target field is set to the value of the last call.
-func (b *ArcanumSpecApplyConfiguration) WithTarget(value *TargetSpecApplyConfiguration) *ArcanumSpecApplyConfiguration {
+func (b *CredentialConfigSpecApplyConfiguration) WithTarget(value *TargetSpecApplyConfiguration) *CredentialConfigSpecApplyConfiguration {
 	b.Target = value
 	return b
 }
@@ -46,7 +46,7 @@ func (b *ArcanumSpecApplyConfiguration) WithTarget(value *TargetSpecApplyConfigu
 // WithCredentials sets the Credentials field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Credentials field is set to the value of the last call.
-func (b *ArcanumSpecApplyConfiguration) WithCredentials(value *CredentialsSpecApplyConfiguration) *ArcanumSpecApplyConfiguration {
+func (b *CredentialConfigSpecApplyConfiguration) WithCredentials(value *CredentialsSpecApplyConfiguration) *CredentialConfigSpecApplyConfiguration {
 	b.Credentials = value
 	return b
 }

@@ -9,27 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/gather"
 )
 
-func gatherMapping() map[string]arcanav1.ValueSource {
-	return map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "postgres-poc-rw"},
+func gatherMapping() map[string]custosv1.ValueSource {
+	return map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "postgres-poc-rw"},
 		"USERNAME": {
-			Source:     arcanav1.SourceObjectRef,
+			Source:     custosv1.SourceObjectRef,
 			APIVersion: "v1",
 			Kind:       "Secret",
 			Name:       "{{.ClaimName}}-app",
 			Key:        "username",
 		},
 		"DATABASE": {
-			Source:      arcanav1.SourceExec,
+			Source:      custosv1.SourceExec,
 			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "postgres"}},
 			Container:   "postgres",
 			Command:     []string{"psql", "-tAc", "select current_database()"},
 		},
-		"URL": {Source: arcanav1.SourceTemplate, Value: "{{.HOST}}/{{.DATABASE}}"},
+		"URL": {Source: custosv1.SourceTemplate, Value: "{{.HOST}}/{{.DATABASE}}"},
 	}
 }
 
@@ -64,9 +64,9 @@ func TestBuildPlan_RendersTheMetadataTemplateInAName(t *testing.T) {
 }
 
 func TestBuildPlan_RendersTheMetadataTemplateInACommand(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
+	mapping := map[string]custosv1.ValueSource{
 		"DB": {
-			Source:      arcanav1.SourceExec,
+			Source:      custosv1.SourceExec,
 			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "pg"}},
 			Command:     []string{"sh", "-c", "echo {{.ClaimName}}"},
 		},
@@ -90,12 +90,12 @@ func TestNeedsGather_TrueWithAnObjectRef(t *testing.T) {
 }
 
 // A mapping custos can resolve on its own must not spend a Job. This is what
-// keeps a simple Arcanum synchronous.
+// keeps a simple CredentialConfig synchronous.
 func TestNeedsGather_FalseWithoutObjectRefOrExec(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "h"},
-		"DB":   {Source: arcanav1.SourceClaimParam, Path: ".spec.db"},
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "{{.HOST}}/{{.DB}}"},
+	mapping := map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "h"},
+		"DB":   {Source: custosv1.SourceClaimParam, Path: ".spec.db"},
+		"URL":  {Source: custosv1.SourceTemplate, Value: "{{.HOST}}/{{.DB}}"},
 	}
 
 	assert.False(t, needsGather(mapping))
@@ -137,7 +137,7 @@ func TestGatherJob_RunsAsInstanceAdmin(t *testing.T) {
 	m, _ := newManager()
 	m.GatherImage = "ghcr.io/helmetica-framework/custos:v1"
 
-	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+	job := m.gatherJob(credentialConfig(1), plan, "a1b2c3d4")
 
 	require.NotNil(t, job.Spec)
 	require.NotNil(t, job.Spec.Template.Spec)
@@ -155,7 +155,7 @@ func TestGatherJob_RetriesWithinTheJob(t *testing.T) {
 	require.NoError(t, err)
 	m, _ := newManager()
 
-	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+	job := m.gatherJob(credentialConfig(1), plan, "a1b2c3d4")
 
 	require.NotNil(t, job.Spec)
 	require.NotNil(t, job.Spec.BackoffLimit)
@@ -163,22 +163,22 @@ func TestGatherJob_RetriesWithinTheJob(t *testing.T) {
 	assert.Positive(t, *job.Spec.BackoffLimit)
 }
 
-// The Job cannot find the Arcanum on its own, so anything it has to stamp on
+// The Job cannot find the CredentialConfig on its own, so anything it has to stamp on
 // what it writes travels in the args. Without the name the gathered Secret
 // misses the label the manager cache selects on, and the controller reads it
 // back as NotFound.
-func TestGatherJob_PassesTheArcanumToTheBinary(t *testing.T) {
+func TestGatherJob_PassesTheCredentialConfigToTheBinary(t *testing.T) {
 	plan, err := buildPlan(gatherMapping(), testMetadata())
 	require.NoError(t, err)
 	m, _ := newManager()
 
-	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+	job := m.gatherJob(credentialConfig(1), plan, "a1b2c3d4")
 
 	require.Len(t, job.Spec.Template.Spec.Containers, 1)
 	args := job.Spec.Template.Spec.Containers[0].Args
 
-	assert.Equal(t, "sample", argValue(args, "--arcanum"))
-	assert.Equal(t, string(arcanumUID), argValue(args, "--arcanum-uid"))
+	assert.Equal(t, "sample", argValue(args, "--credentialconfig"))
+	assert.Equal(t, string(credentialConfigUID), argValue(args, "--credentialconfig-uid"))
 }
 
 // argValue returns what follows flag in a container's args.
@@ -194,32 +194,32 @@ func argValue(args []string, flag string) string {
 
 // Gather Jobs left over from a previous plan are deleted by listing on this
 // label. Without it there is no way to find them.
-func TestGatherJob_CarriesTheArcanumLabel(t *testing.T) {
+func TestGatherJob_CarriesTheCredentialConfigLabel(t *testing.T) {
 	plan, err := buildPlan(gatherMapping(), testMetadata())
 	require.NoError(t, err)
 	m, _ := newManager()
 
-	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+	job := m.gatherJob(credentialConfig(1), plan, "a1b2c3d4")
 
-	assert.Equal(t, "sample", job.Labels[arcanumNameLabel])
+	assert.Equal(t, "sample", job.Labels[credentialConfigNameLabel])
 }
 
-func TestGatherJob_IsOwnedByTheArcanum(t *testing.T) {
+func TestGatherJob_IsOwnedByTheCredentialConfig(t *testing.T) {
 	plan, err := buildPlan(gatherMapping(), testMetadata())
 	require.NoError(t, err)
 	m, _ := newManager()
 
-	job := m.gatherJob(arcanum(1), plan, "a1b2c3d4")
+	job := m.gatherJob(credentialConfig(1), plan, "a1b2c3d4")
 
 	require.Len(t, job.OwnerReferences, 1)
 	assert.Equal(t, "sample", *job.OwnerReferences[0].Name)
-	assert.Equal(t, arcanumUID, *job.OwnerReferences[0].UID)
+	assert.Equal(t, credentialConfigUID, *job.OwnerReferences[0].UID)
 	assert.True(t, *job.OwnerReferences[0].Controller)
 }
 
-// An Arcanum name can already be 63 characters, so any suffix pushes it over
+// An CredentialConfig name can already be 63 characters, so any suffix pushes it over
 // and the API server rejects the name rather than shortening it for us.
-func TestGatherJobName_TruncatesALongArcanumName(t *testing.T) {
+func TestGatherJobName_TruncatesALongCredentialConfigName(t *testing.T) {
 	name := gatherJobName(strings.Repeat("a", 63), "a1b2c3d4")
 
 	assert.LessOrEqual(t, len(name), 63)
@@ -228,7 +228,7 @@ func TestGatherJobName_TruncatesALongArcanumName(t *testing.T) {
 		"the suffix says which of the four objects this is, so it survives")
 }
 
-// Truncating alone would give two Arcana that share a long prefix one name.
+// Truncating alone would give two CredentialConfigs that share a long prefix one name.
 // In a shared namespace that is two services overwriting each other's
 // credentials in a single Secret.
 func TestGatherNames_DoNotCollideOnASharedPrefix(t *testing.T) {
@@ -255,9 +255,9 @@ func TestGatherNames_AreDistinct(t *testing.T) {
 // The wait reaches the Job through the plan and nowhere else, so an entry that
 // drops it here would silently fall back to the binary's default.
 func TestBuildPlan_CarriesThePodWait(t *testing.T) {
-	mapping := map[string]arcanav1.ValueSource{
+	mapping := map[string]custosv1.ValueSource{
 		"DB": {
-			Source:      arcanav1.SourceExec,
+			Source:      custosv1.SourceExec,
 			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "pg"}},
 			Command:     []string{"psql", "-tAc", "select 1"},
 			PodWait:     &metav1.Duration{Duration: 90 * time.Second},
@@ -272,7 +272,7 @@ func TestBuildPlan_CarriesThePodWait(t *testing.T) {
 	assert.Equal(t, 90*time.Second, plan.Entries[0].PodWait.Duration)
 }
 
-// Two Arcana that differ only in how long they wait are two different plans,
+// Two CredentialConfigs that differ only in how long they wait are two different plans,
 // so they must not share a Job name.
 func TestGatherHash_ChangesWithThePodWait(t *testing.T) {
 	base, err := buildPlan(gatherMapping(), testMetadata())

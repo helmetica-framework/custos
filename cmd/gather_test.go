@@ -17,7 +17,7 @@ import (
 // The Job passes all five of these. A renamed flag turns into a Job that
 // fails at startup, which no unit test elsewhere would catch.
 func TestGatherCommand_HasTheFlagsTheJobPasses(t *testing.T) {
-	for _, name := range []string{"plan", "secret", "result", "arcanum", "arcanum-uid"} {
+	for _, name := range []string{"plan", "secret", "result", "credentialconfig", "credentialconfig-uid"} {
 		assert.NotNil(t, gatherCmd.Flags().Lookup(name), "missing flag %q", name)
 	}
 }
@@ -43,15 +43,15 @@ func TestGatherCommand_IsRegisteredOnTheRoot(t *testing.T) {
 }
 
 // The flags are package level, so a test that sets them puts them back.
-func withGatherFlags(t *testing.T, secret, arcanum, uid string) {
+func withGatherFlags(t *testing.T, secret, credentialConfig, uid string) {
 	t.Helper()
 
-	oldSecret, oldArcanum, oldUID := secretName, arcanumName, arcanumUID
+	oldSecret, oldCredentialConfig, oldUID := secretName, credentialConfigName, credentialConfigUID
 
-	secretName, arcanumName, arcanumUID = secret, arcanum, uid
+	secretName, credentialConfigName, credentialConfigUID = secret, credentialConfig, uid
 
 	t.Cleanup(func() {
-		secretName, arcanumName, arcanumUID = oldSecret, oldArcanum, oldUID
+		secretName, credentialConfigName, credentialConfigUID = oldSecret, oldCredentialConfig, oldUID
 	})
 }
 
@@ -64,7 +64,7 @@ const gatherTestNamespace = "x-abcd1234-tenant-postgres-poc"
 // The label is the whole reason the controller can read this Secret back. Its
 // cache is restricted to Secrets carrying it, so an unlabelled one is
 // NotFound however often the controller looks.
-func TestApplyGathered_WritesTheValuesUnderTheArcanumLabel(t *testing.T) {
+func TestApplyGathered_WritesTheValuesUnderTheCredentialConfigLabel(t *testing.T) {
 	withGatherFlags(t, "sample-gathered", "sample", "")
 	c := gatherClient()
 	ctx := context.Background()
@@ -78,16 +78,16 @@ func TestApplyGathered_WritesTheValuesUnderTheArcanumLabel(t *testing.T) {
 		Name: "sample-gathered", Namespace: gatherTestNamespace,
 	}, got))
 
-	assert.Equal(t, "sample", got.Labels[gather.ArcanumNameLabel])
+	assert.Equal(t, "sample", got.Labels[gather.CredentialConfigNameLabel])
 
 	// Data holds plain bytes. The base64 in a Secret belongs to the wire
 	// format, and the serializer puts it there.
 	assert.Equal(t, map[string][]byte{"USERNAME": []byte("app")}, got.Data)
 }
 
-// Deleting the Arcanum has to take the gathered credentials with it, and the
+// Deleting the CredentialConfig has to take the gathered credentials with it, and the
 // Job is the only process that ever writes this Secret.
-func TestApplyGathered_IsOwnedByTheArcanum(t *testing.T) {
+func TestApplyGathered_IsOwnedByTheCredentialConfig(t *testing.T) {
 	withGatherFlags(t, "sample-gathered", "sample", "11111111-2222-3333-4444-555555555555")
 	c := gatherClient()
 	ctx := context.Background()
@@ -100,7 +100,7 @@ func TestApplyGathered_IsOwnedByTheArcanum(t *testing.T) {
 	}, got))
 
 	require.Len(t, got.OwnerReferences, 1)
-	assert.Equal(t, "Arcanum", got.OwnerReferences[0].Kind)
+	assert.Equal(t, "CredentialConfig", got.OwnerReferences[0].Kind)
 	assert.Equal(t, "sample", got.OwnerReferences[0].Name)
 	assert.Equal(t, types.UID("11111111-2222-3333-4444-555555555555"), got.OwnerReferences[0].UID)
 	assert.True(t, *got.OwnerReferences[0].Controller)

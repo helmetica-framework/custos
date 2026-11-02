@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- v1_arcanum.yaml
+- v1_credentialconfig.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

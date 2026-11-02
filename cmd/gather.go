@@ -15,17 +15,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 	"github.com/helmetica-framework/custos/gather"
 )
 
 var (
-	podWait     time.Duration
-	planPath    string
-	secretName  string
-	resultName  string
-	arcanumName string
-	arcanumUID  string
+	podWait              time.Duration
+	planPath             string
+	secretName           string
+	resultName           string
+	credentialConfigName string
+	credentialConfigUID  string
 )
 
 const (
@@ -44,8 +44,8 @@ func init() {
 	gatherCmd.Flags().StringVar(&planPath, "plan", defaultPlanPath, "Path to the plan file the controller mounted.")
 	gatherCmd.Flags().StringVar(&secretName, "secret", "", "Name of the Secret to write the gathered values to.")
 	gatherCmd.Flags().StringVar(&resultName, "result", "", "Name of the ConfigMap to record the outcome in.")
-	gatherCmd.Flags().StringVar(&arcanumName, "arcanum", "", "Name of the Arcanum this gather belongs to.")
-	gatherCmd.Flags().StringVar(&arcanumUID, "arcanum-uid", "", "UID of the Arcanum this gather belongs to.")
+	gatherCmd.Flags().StringVar(&credentialConfigName, "credentialconfig", "", "Name of the CredentialConfig this gather belongs to.")
+	gatherCmd.Flags().StringVar(&credentialConfigUID, "credentialconfig-uid", "", "UID of the CredentialConfig this gather belongs to.")
 	gatherCmd.Flags().DurationVar(&podWait, "pod-wait", defaultPodWait,
 		"How long to wait for an exec's pod to become ready before failing the run.")
 }
@@ -106,7 +106,7 @@ func runGather(cmd *cobra.Command, _ []string) error {
 		runErr = applyGathered(ctx, c, plan.Namespace, values)
 	}
 
-	if err := gather.WriteResult(ctx, c, plan.Namespace, resultName, arcanumOwner(), runErr); err != nil {
+	if err := gather.WriteResult(ctx, c, plan.Namespace, resultName, credentialConfigOwner(), runErr); err != nil {
 		return errors.Join(runErr, err)
 	}
 
@@ -127,7 +127,7 @@ func runGather(cmd *cobra.Command, _ []string) error {
 // applyGathered writes the resolved values into the Secret the controller
 // reads back.
 //
-// The arcanum-name label is what makes that Secret visible at all. The
+// The credential config-name label is what makes that Secret visible at all. The
 // manager's cache is restricted to Secrets carrying it, so an unlabelled one
 // reads as NotFound however often the controller looks.
 func applyGathered(ctx context.Context, c client.Client, namespace string, values map[string]string) error {
@@ -137,10 +137,10 @@ func applyGathered(ctx context.Context, c client.Client, namespace string, value
 	}
 
 	secret := corev1ac.Secret(secretName, namespace).
-		WithLabels(map[string]string{gather.ArcanumNameLabel: arcanumName}).
+		WithLabels(map[string]string{gather.CredentialConfigNameLabel: credentialConfigName}).
 		WithData(dvalues)
 
-	if owner := arcanumOwner(); owner != nil {
+	if owner := credentialConfigOwner(); owner != nil {
 		secret.WithOwnerReferences(owner)
 	}
 
@@ -153,22 +153,22 @@ func applyGathered(ctx context.Context, c client.Client, namespace string, value
 	return nil
 }
 
-// arcanumOwner ties what the Job writes to the Arcanum, so deleting the
-// Arcanum takes the gathered Secret and the result ConfigMap with it.
+// credentialConfigOwner ties what the Job writes to the CredentialConfig, so deleting the
+// CredentialConfig takes the gathered Secret and the result ConfigMap with it.
 //
 // blockOwnerDeletion is deliberately left off. Setting it needs update on the
 // owner's finalizers subresource, which the admin ClusterRole instance-admin
 // is bound to does not cover for a custom kind, and the API server would
 // reject the whole write rather than just that field.
-func arcanumOwner() *metav1ac.OwnerReferenceApplyConfiguration {
-	if arcanumName == "" || arcanumUID == "" {
+func credentialConfigOwner() *metav1ac.OwnerReferenceApplyConfiguration {
+	if credentialConfigName == "" || credentialConfigUID == "" {
 		return nil
 	}
 
 	return metav1ac.OwnerReference().
-		WithAPIVersion(arcanav1.GroupVersion.String()).
-		WithKind("Arcanum").
-		WithName(arcanumName).
-		WithUID(types.UID(arcanumUID)).
+		WithAPIVersion(custosv1.GroupVersion.String()).
+		WithKind("CredentialConfig").
+		WithName(credentialConfigName).
+		WithUID(types.UID(credentialConfigUID)).
 		WithController(true)
 }

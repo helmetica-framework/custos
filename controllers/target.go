@@ -12,10 +12,10 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
 )
 
-// targetFinalizer holds the Arcanum open until its Secret is dealt with. A
+// targetFinalizer holds the CredentialConfig open until its Secret is dealt with. A
 // target in the claim namespace carries no owner reference, so without this
 // nothing would ever remove it.
 const targetFinalizer = "custos.helmetica.io/target-secret"
@@ -27,18 +27,18 @@ const targetFinalizer = "custos.helmetica.io/target-secret"
 // Controller is set because Owns only enqueues for the controller owner, so
 // without it garbage collection still works while the watch that heals an
 // edited object never fires.
-func controllerRef(arcanum *arcanav1.Arcanum) *metav1ac.OwnerReferenceApplyConfiguration {
+func controllerRef(credentialConfig *custosv1.CredentialConfig) *metav1ac.OwnerReferenceApplyConfiguration {
 	return &metav1ac.OwnerReferenceApplyConfiguration{
-		APIVersion: ptr.To(arcanav1.GroupVersion.String()),
-		Kind:       ptr.To("Arcanum"),
-		Name:       ptr.To(arcanum.GetName()),
-		UID:        ptr.To(arcanum.GetUID()),
+		APIVersion: ptr.To(custosv1.GroupVersion.String()),
+		Kind:       ptr.To("CredentialConfig"),
+		Name:       ptr.To(credentialConfig.GetName()),
+		UID:        ptr.To(credentialConfig.GetUID()),
 		Controller: ptr.To(true),
 	}
 }
 
 // formatData uppercases the keys, because a credentials Secret is usually
-// loaded as environment variables however the Arcanum spelled them.
+// loaded as environment variables however the CredentialConfig spelled them.
 func formatData(data map[string]string) map[string][]byte {
 	upper := make(map[string][]byte, len(data))
 
@@ -50,22 +50,22 @@ func formatData(data map[string]string) map[string][]byte {
 }
 
 // applyTargetSecret writes the credentials. local says the target is the
-// Arcanum's own namespace, which is the only case where an owner reference is
+// CredentialConfig's own namespace, which is the only case where an owner reference is
 // possible: a reference across namespaces is not resolvable, and the garbage
 // collector deletes the object that carries one.
-func (r *ArcanumManager) applyTargetSecret(
+func (r *CredentialConfigManager) applyTargetSecret(
 	ctx context.Context,
-	arcanum *arcanav1.Arcanum,
+	credentialConfig *custosv1.CredentialConfig,
 	ns string,
 	local bool,
 	data map[string]string,
 ) error {
-	name := arcanum.Spec.Target.Name
+	name := credentialConfig.Spec.Target.Name
 
 	existing := &corev1.Secret{}
 
 	// Uncached on purpose. The manager cache holds only Secrets carrying
-	// arcanumNameLabel, so a foreign one reads as NotFound and this check
+	// credentialConfigNameLabel, so a foreign one reads as NotFound and this check
 	// would pass exactly when it has to fail.
 	err := r.APIReader.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, existing)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -74,22 +74,22 @@ func (r *ArcanumManager) applyTargetSecret(
 
 	// Only a Secret that is already there can belong to someone else. A
 	// NotFound is the ordinary first write.
-	if err == nil && existing.GetLabels()[arcanumUIDLabel] != string(arcanum.GetUID()) {
-		r.Log.Info("refusing to take over a secret this arcanum did not create",
+	if err == nil && existing.GetLabels()[credentialConfigUIDLabel] != string(credentialConfig.GetUID()) {
+		r.Log.Info("refusing to take over a secret this credential config did not create",
 			"namespace", ns, "name", name)
 
-		return fmt.Errorf("secret %s/%s exists and is not managed by this arcanum", ns, name)
+		return fmt.Errorf("secret %s/%s exists and is not managed by this credential config", ns, name)
 	}
 
 	// Data carries plain bytes. The base64 belongs to the wire format, so
 	// encoding it here would land double encoded in the Secret.
 	secret := corev1ac.Secret(name, ns).
 		WithType(corev1.SecretTypeOpaque).
-		WithLabels(ownershipLabels(arcanum)).
+		WithLabels(ownershipLabels(credentialConfig)).
 		WithData(formatData(data))
 
 	if local {
-		secret.WithOwnerReferences(controllerRef(arcanum))
+		secret.WithOwnerReferences(controllerRef(credentialConfig))
 	}
 
 	if err := r.Apply(ctx, secret, fieldOwner, client.ForceOwnership); err != nil {
@@ -97,9 +97,9 @@ func (r *ArcanumManager) applyTargetSecret(
 	}
 
 	// cleanup on rename
-	old := arcanum.Status
+	old := credentialConfig.Status
 	if old.SecretName != "" && (old.SecretName != name || old.SecretNamespace != ns) {
-		if err := r.cleanupTargetSecret(ctx, arcanum); err != nil {
+		if err := r.cleanupTargetSecret(ctx, credentialConfig); err != nil {
 			return fmt.Errorf("cleaning up moved secret %s/%s: %w", old.SecretNamespace, old.SecretName, err)
 		}
 	}
@@ -112,14 +112,14 @@ func (r *ArcanumManager) applyTargetSecret(
 //
 // Every reason this might not finish is a success. It backs a finalizer, and
 // a finalizer that returns an error on something it can never fix leaves the
-// Arcanum undeletable and its namespace stuck in Terminating.
-func (r *ArcanumManager) cleanupTargetSecret(ctx context.Context, arcanum *arcanav1.Arcanum) error {
+// CredentialConfig undeletable and its namespace stuck in Terminating.
+func (r *CredentialConfigManager) cleanupTargetSecret(ctx context.Context, credentialConfig *custosv1.CredentialConfig) error {
 	// Nothing was ever written, so there is nothing to take back.
-	if arcanum.Status.SecretName == "" {
+	if credentialConfig.Status.SecretName == "" {
 		return nil
 	}
 
-	ns, name := arcanum.Status.SecretNamespace, arcanum.Status.SecretName
+	ns, name := credentialConfig.Status.SecretNamespace, credentialConfig.Status.SecretName
 
 	secret := &corev1.Secret{}
 
@@ -137,10 +137,10 @@ func (r *ArcanumManager) cleanupTargetSecret(ctx context.Context, arcanum *arcan
 		return fmt.Errorf("getting secret %s/%s: %w", ns, name, err)
 	}
 
-	// A name and namespace can be reused by a later Arcanum, so the UID is
+	// A name and namespace can be reused by a later CredentialConfig, so the UID is
 	// the only thing that says this is the Secret custos wrote. Deleting
 	// someone else's would turn a name collision into data loss.
-	if secret.GetLabels()[arcanumUIDLabel] != string(arcanum.GetUID()) {
+	if secret.GetLabels()[credentialConfigUIDLabel] != string(credentialConfig.GetUID()) {
 		return nil
 	}
 

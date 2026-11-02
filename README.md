@@ -1,9 +1,9 @@
 # Custos
 
-**Custos**: the guardian, the one an alchemist trusts to keep the arcanum
+**Custos**: the guardian, the one an alchemist trusts to keep the credential config
 and let no one at it who has no business with it.
 
-An `Arcanum` says which values a service's credentials are made of and where
+An `CredentialConfig` says which values a service's credentials are made of and where
 each one comes from. Custos collects them, renders them and writes one Secret
 where the consumer can reach it.
 
@@ -15,14 +15,14 @@ Against a kind (or any) cluster:
 kubectl apply -k config/crd
 just run          # in a second terminal
 kubectl apply -k config/samples
-kubectl get arcana -w   # PHASE -> Ready
+kubectl get credentialconfigs -w   # PHASE -> Ready
 kubectl get secret sample-credentials -o jsonpath='{.data.URL}' | base64 -d
 ```
 
 The sample builds `postgres://sample-rw:5432/sample` out of two constants and
 a template, which needs no cluster access at all and settles in one pass.
 
-Set `spec.suspend: true` to pause it. A suspended arcanum holds at `Pending`
+Set `spec.suspend: true` to pause it. A suspended credential config holds at `Pending`
 and custos leaves everything it owns alone, including a Secret it has already
 written, which is the escape hatch when the controller and the cluster
 disagree. Clearing the field releases it.
@@ -45,7 +45,7 @@ Those names are uppercased on the way into the Secret, because a credentials
 Secret is usually loaded as environment variables. A mapping key of `host`
 becomes `HOST`. Templates still refer to the key as written, so
 `{{.host}}` is what reads it. Two keys that differ only in case would land on
-one, so an Arcanum carrying both is rejected before anything is created.
+one, so an CredentialConfig carrying both is rejected before anything is created.
 
 | Source | Reads | Resolved by |
 | ------ | ----- | ----------- |
@@ -98,7 +98,7 @@ Two layers, in this order.
 templates. Six names, and nothing else:
 
 `ClaimName`, `ClaimNamespace`, `ClaimKind`, `ClaimAPIVersion`,
-`InstanceNamespace`, `ArcanumName`.
+`InstanceNamespace`, `CredentialConfigName`.
 
 So `name: "{{.ClaimName}}-app"` points an `objectRef` at a Secret whose name
 chryso derived from the claim.
@@ -111,16 +111,16 @@ start a Job, fail, and be started again every quarter hour forever.
 
 ## Where the Secret lands
 
-Beside the claim when the arcanum's namespace carries chrysopoeia's
+Beside the claim when the credential config's namespace carries chrysopoeia's
 annotations, and in the instance namespace when it does not. The namespace is not
 configurable: it follows from where the consumer is, and letting a chart
 author pick would let one tenant write into another's namespace.
 
 A cross-namespace Secret cannot carry an owner reference, so custos holds a
-finalizer and removes the Secret itself when the arcanum goes.
+finalizer and removes the Secret itself when the credential config goes.
 
 Custos never adopts a Secret it did not create. If the target name is already
-taken by something without its labels, the arcanum goes `Failed` and the
+taken by something without its labels, the credential config goes `Failed` and the
 existing Secret is left exactly as it was.
 
 ## When a gather runs
@@ -129,13 +129,13 @@ On a changed plan, and on retry until it succeeds. The plan is hashed into the
 Job's name, so an unchanged mapping finds the Job it already ran and skips the
 stage. To force one, change the `custos.helmetica.io/refresh` annotation to any
 new value; it is hashed in too. Nothing runs a gather on a timer, so a rotated
-source password goes unnoticed until something pokes the arcanum.
+source password goes unnoticed until something pokes the credential config.
 
 A failed gather reports the message its Job left in a ConfigMap rather than its
 log, which is what keeps custos off `pods/log`, a cluster-wide grant over
 output that routinely contains secrets.
 
-Once the arcanum is `Ready` its gather Job is deleted, since a settled gather
+Once the credential config is `Ready` its gather Job is deleted, since a settled gather
 is read back from the gathered Secret and never from the Job. A Job that failed
 is kept: its pods are the only place left to look, and the retry measures its
 backoff from the Job's own condition.
@@ -148,12 +148,12 @@ custos retries at two levels and neither gives up.
 
 The Job retries itself six times over about ten minutes of backoff, plus the
 wait each attempt spends looking for a ready pod. While it still has attempts
-left the arcanum holds at `Pending` with the reason on it, for example
+left the credential config holds at `Pending` with the reason on it, for example
 `no ready pod matches app=postgres`.
 
-Once the Job gives up the arcanum goes `Failed`, still carrying the reason, and
+Once the Job gives up the credential config goes `Failed`, still carrying the reason, and
 custos deletes the Job five minutes later so the next pass creates it again.
-`Failed` is therefore not terminal: an arcanum recovers on its own once the
+`Failed` is therefore not terminal: a credential config recovers on its own once the
 thing it was waiting for turns up. Only a validation error is permanent, and
 those never create a Job at all.
 
@@ -161,9 +161,9 @@ those never create a Job at all.
 
 | Path | What's there |
 | ---- | ------------- |
-| `api/v1` | The `Arcanum` type (`arcana.helmetica.io/v1`): spec, status, the CEL rules that keep malformed sources out, and generated deepcopy code. |
+| `api/v1` | The `CredentialConfig` type (`custos.helmetica.io/v1`): spec, status, the CEL rules that keep malformed sources out, and generated deepcopy code. |
 | `cmd` | The `custos` CLI (cobra): `controller.go` builds the manager, `gather.go` is the `custos gather` subcommand the Job runs. |
-| `controllers` | `ArcanumManager`. `desiredPhase` is the flow; `resolve.go` validates and renders, `gather.go` builds the plan and the Job, `target.go` writes and takes back the Secret. |
+| `controllers` | `CredentialConfigManager`. `desiredPhase` is the flow; `resolve.go` validates and renders, `gather.go` builds the plan and the Job, `target.go` writes and takes back the Secret. |
 | `gather` | The plan the controller writes and the Job reads, plus the resolution the Job performs. Shared by both sides on purpose: a plan written one way and read another would only show up in a cluster. |
 | `config` | Kustomize tree: `crd` (installed separately), `rbac`, `manager`, `default` (RBAC + manager, no CRDs) and `samples`. |
 | `test/touchstone` | The chainsaw suite. `just touchstone` against a cluster with custos deployed. |

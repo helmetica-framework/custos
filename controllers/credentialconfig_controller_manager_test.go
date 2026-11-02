@@ -23,54 +23,54 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	arcanav1 "github.com/helmetica-framework/custos/api/v1"
-	arcanaac "github.com/helmetica-framework/custos/applyconfiguration"
+	custosv1 "github.com/helmetica-framework/custos/api/v1"
+	custosac "github.com/helmetica-framework/custos/applyconfiguration"
 	"github.com/helmetica-framework/custos/gather"
 )
 
 func newTestScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(arcanav1.AddToScheme(scheme))
+	utilruntime.Must(custosv1.AddToScheme(scheme))
 	return scheme
 }
 
-func arcanum(generation int64) *arcanav1.Arcanum {
-	return &arcanav1.Arcanum{
+func credentialConfig(generation int64) *custosv1.CredentialConfig {
+	return &custosv1.CredentialConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "sample",
 			Namespace:  "default",
 			Generation: generation,
-			UID:        arcanumUID,
+			UID:        credentialConfigUID,
 		},
-		// The target is required by the CRD, so an Arcanum without one is not
+		// The target is required by the CRD, so an CredentialConfig without one is not
 		// a thing a cluster can hold. Every fixture carries it, and the ones
 		// that care about the name override it.
-		Spec: arcanav1.ArcanumSpec{
-			Target: arcanav1.TargetSpec{Name: "postgres-poc-credentials"},
+		Spec: custosv1.CredentialConfigSpec{
+			Target: custosv1.TargetSpec{Name: "postgres-poc-credentials"},
 		},
 	}
 }
 
-// arcanumUID stands in for the UID the API server would assign. Anything custos
+// credentialConfigUID stands in for the UID the API server would assign. Anything custos
 // grows to own will copy it into an owner reference, and an owner reference
 // without one is rejected in a real cluster.
-const arcanumUID = types.UID("11111111-2222-3333-4444-555555555555")
+const credentialConfigUID = types.UID("11111111-2222-3333-4444-555555555555")
 
-func arcanumKey() types.NamespacedName {
+func credentialConfigKey() types.NamespacedName {
 	return types.NamespacedName{Name: "sample", Namespace: "default"}
 }
 
-// newManager wires a ArcanumManager over a fake client seeded with objs. The
+// newManager wires a CredentialConfigManager over a fake client seeded with objs. The
 // status subresource must be registered or every status write is rejected,
 // and the generated type converter is what lets the status apply merge.
-func newManager(objs ...client.Object) (*ArcanumManager, client.Client) {
+func newManager(objs ...client.Object) (*CredentialConfigManager, client.Client) {
 	scheme := newTestScheme()
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&arcanav1.Arcanum{}, &batchv1.Job{}).
+		WithStatusSubresource(&custosv1.CredentialConfig{}, &batchv1.Job{}).
 		WithTypeConverters(
-			arcanaac.NewTypeConverter(scheme),
+			custosac.NewTypeConverter(scheme),
 			managedfields.NewDeducedTypeConverter(),
 		).
 		// Apply is the write path under test, so the field manager it records
@@ -82,7 +82,7 @@ func newManager(objs ...client.Object) (*ArcanumManager, client.Client) {
 	// APIReader is the same fake client here. In production it is the
 	// manager's uncached reader, so anything relying on the two differing
 	// will pass in a test and fail in a cluster.
-	return &ArcanumManager{
+	return &CredentialConfigManager{
 		Client:      c,
 		APIReader:   c,
 		Scheme:      scheme,
@@ -91,52 +91,52 @@ func newManager(objs ...client.Object) (*ArcanumManager, client.Client) {
 	}, c
 }
 
-func TestReconcile_ArcanumGoneIsNoError(t *testing.T) {
+func TestReconcile_CredentialConfigGoneIsNoError(t *testing.T) {
 	m, _ := newManager()
 
-	res, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: arcanumKey()})
+	res, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: credentialConfigKey()})
 
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, res)
 }
 
 func TestReconcile_SetsReady(t *testing.T) {
-	m, c := newManager(arcanum(1), instanceNamespace(nil))
+	m, c := newManager(credentialConfig(1), instanceNamespace(nil))
 
-	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(context.Background(), credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 	assert.Equal(t, int64(1), got.Status.ObservedGeneration)
 	assert.Equal(t, credentialsAppliedMessage, got.Status.Message)
 }
 
 func TestReconcile_IsIdempotent(t *testing.T) {
-	m, c := newManager(arcanum(1), instanceNamespace(nil))
+	m, c := newManager(credentialConfig(1), instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	afterFirst := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), afterFirst))
+	afterFirst := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), afterFirst))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	afterSecond := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), afterSecond))
+	afterSecond := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), afterSecond))
 
 	assert.Equal(t, afterFirst.ResourceVersion, afterSecond.ResourceVersion,
-		"a settled arcanum must not be written again")
+		"a settled credential config must not be written again")
 }
 
 func TestReconcile_SpecChangeRestampsObservedGeneration(t *testing.T) {
-	settled := arcanum(1)
-	settled.Status = arcanav1.ArcanumStatus{
-		Phase:              arcanav1.ArcanumPhaseReady,
+	settled := credentialConfig(1)
+	settled.Status = custosv1.CredentialConfigStatus{
+		Phase:              custosv1.CredentialConfigPhaseReady,
 		ObservedGeneration: 1,
 		Message:            credentialsAppliedMessage,
 	}
@@ -144,48 +144,48 @@ func TestReconcile_SpecChangeRestampsObservedGeneration(t *testing.T) {
 	ctx := context.Background()
 
 	// Simulate a spec edit: the API server bumps generation, status lags.
-	current := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), current))
+	current := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), current))
 	current.Generation = 2
 	current.Spec.Suspend = ptr.To(false)
 	require.NoError(t, c.Update(ctx, current))
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 	assert.Equal(t, int64(2), got.Status.ObservedGeneration,
 		"observedGeneration must follow the spec generation")
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 }
 
 // TestReconcile_PhaseChangeAloneTriggersWrite pins the phase term of the
 // status-write guard. The generation term and the message term both match
 // here, so only a divergent Phase can make Reconcile write. Without the phase
-// term the guard would treat this arcanum as already settled and skip the write,
-// leaving it stuck on ArcanumPhaseFailed.
+// term the guard would treat this credential config as already settled and skip the write,
+// leaving it stuck on CredentialConfigPhaseFailed.
 func TestReconcile_PhaseChangeAloneTriggersWrite(t *testing.T) {
-	settled := arcanum(1)
-	settled.Status = arcanav1.ArcanumStatus{
-		Phase:              arcanav1.ArcanumPhaseFailed,
+	settled := credentialConfig(1)
+	settled.Status = custosv1.CredentialConfigStatus{
+		Phase:              custosv1.CredentialConfigPhaseFailed,
 		ObservedGeneration: 1,
 		Message:            credentialsAppliedMessage,
 	}
 	m, c := newManager(settled, instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase,
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase,
 		"a phase mismatch alone must trigger a status write")
 }
 
-func TestReconcile_DeletingArcanumIsNotReconciledForward(t *testing.T) {
-	deleting := fullArcanum(1, mappingWithGather())
+func TestReconcile_DeletingCredentialConfigIsNotReconciledForward(t *testing.T) {
+	deleting := fullCredentialConfig(1, mappingWithGather())
 	// The fake client drops an object with a deletion timestamp and no
 	// finalizer, so the fixture carries a dummy one custos does not manage.
 	deleting.Finalizers = []string{"test.custos/keep-alive"}
@@ -194,71 +194,71 @@ func TestReconcile_DeletingArcanumIsNotReconciledForward(t *testing.T) {
 
 	require.NoError(t, c.Delete(ctx, deleting))
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Empty(t, got.Status.Phase, "a deleting arcanum must not be driven forward")
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Empty(t, got.Status.Phase, "a deleting credential config must not be driven forward")
 
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
 	assert.Empty(t, jobs.Items)
 }
 
-func TestReconcile_SuspendedArcanumHoldsAtPending(t *testing.T) {
-	w := arcanum(1)
+func TestReconcile_SuspendedCredentialConfigHoldsAtPending(t *testing.T) {
+	w := credentialConfig(1)
 	w.Spec.Suspend = ptr.To(true)
 	m, c := newManager(w, instanceNamespace(nil))
 
-	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhasePending, got.Status.Phase,
-		"a suspended arcanum must not reach Ready")
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(context.Background(), credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhasePending, got.Status.Phase,
+		"a suspended credential config must not reach Ready")
 	assert.Equal(t, suspendedMessage, got.Status.Message)
 	assert.Equal(t, int64(1), got.Status.ObservedGeneration,
-		"a suspended arcanum still records the generation it settled on")
+		"a suspended credential config still records the generation it settled on")
 }
 
 func TestReconcile_SuspendFalseBehavesLikeUnset(t *testing.T) {
-	w := arcanum(1)
+	w := credentialConfig(1)
 	w.Spec.Suspend = ptr.To(false)
 	m, c := newManager(w, instanceNamespace(nil))
 
-	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase,
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(context.Background(), credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase,
 		"an explicit false must behave exactly like an unset field")
 }
 
 func TestReconcile_UnsuspendingReturnsToReady(t *testing.T) {
-	w := arcanum(1)
+	w := credentialConfig(1)
 	w.Spec.Suspend = ptr.To(true)
 	m, c := newManager(w, instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	current := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), current))
+	current := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), current))
 	current.Generation = 2
 	current.Spec.Suspend = nil
 	require.NoError(t, c.Update(ctx, current))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase,
-		"clearing suspend must release the arcanum from Pending")
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase,
+		"clearing suspend must release the credential config from Pending")
 	assert.Equal(t, credentialsAppliedMessage, got.Status.Message,
 		"the suspended message must be cleared, not left behind")
 }
@@ -268,13 +268,13 @@ func TestReconcile_UnsuspendingReturnsToReady(t *testing.T) {
 // update writes under a different manager with a different operation, so this
 // fails for anything but Apply.
 func TestReconcile_StatusIsAppliedByCustos(t *testing.T) {
-	m, c := newManager(arcanum(1), instanceNamespace(nil))
+	m, c := newManager(credentialConfig(1), instanceNamespace(nil))
 
-	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(context.Background(), ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(context.Background(), credentialConfigKey(), got))
 
 	var managers []string
 	for _, mf := range got.GetManagedFields() {
@@ -286,42 +286,42 @@ func TestReconcile_StatusIsAppliedByCustos(t *testing.T) {
 		"the status must be written by an apply from the custos field manager")
 }
 
-func mappingWithoutGather() arcanav1.CredentialsSpec {
-	return arcanav1.CredentialsSpec{ValueMapping: map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "postgres-poc-rw"},
-		"URL":  {Source: arcanav1.SourceTemplate, Value: "postgres://{{.HOST}}:5432"},
+func mappingWithoutGather() custosv1.CredentialsSpec {
+	return custosv1.CredentialsSpec{ValueMapping: map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "postgres-poc-rw"},
+		"URL":  {Source: custosv1.SourceTemplate, Value: "postgres://{{.HOST}}:5432"},
 	}}
 }
 
-func mappingWithGather() arcanav1.CredentialsSpec {
-	return arcanav1.CredentialsSpec{ValueMapping: map[string]arcanav1.ValueSource{
-		"HOST": {Source: arcanav1.SourceConst, Value: "postgres-poc-rw"},
+func mappingWithGather() custosv1.CredentialsSpec {
+	return custosv1.CredentialsSpec{ValueMapping: map[string]custosv1.ValueSource{
+		"HOST": {Source: custosv1.SourceConst, Value: "postgres-poc-rw"},
 		"USERNAME": {
-			Source: arcanav1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
+			Source: custosv1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
 			Name: "{{.ClaimName}}-app", Key: "username",
 		},
 	}}
 }
 
-func fullArcanum(generation int64, creds arcanav1.CredentialsSpec) *arcanav1.Arcanum {
-	a := arcanum(generation)
-	a.Spec.Target = arcanav1.TargetSpec{Name: "postgres-poc-credentials"}
+func fullCredentialConfig(generation int64, creds custosv1.CredentialsSpec) *custosv1.CredentialConfig {
+	a := credentialConfig(generation)
+	a.Spec.Target = custosv1.TargetSpec{Name: "postgres-poc-credentials"}
 	a.Spec.Credentials = creds
 	return a
 }
 
 // A mapping custos can resolve alone must settle in one pass. Spending a Job
-// on it would make every simple Arcanum asynchronous for nothing.
+// on it would make every simple CredentialConfig asynchronous for nothing.
 func TestReconcile_NoGatherNeededSettlesInOnePass(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
@@ -337,39 +337,39 @@ func TestReconcile_NoGatherNeededSettlesInOnePass(t *testing.T) {
 
 // Without the annotation the Secret stays put, which is the plain helm case.
 func TestReconcile_WithoutAClaimTheSecretIsLocal(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 	assert.Equal(t, "default", got.Status.SecretNamespace)
 	assert.Empty(t, got.Finalizers, "a local target is handled by an owner reference, not a finalizer")
 }
 
 func TestReconcile_WithAClaimTheSecretGoesToTheClaimNamespace(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 	assert.Equal(t, "tenant", got.Status.SecretNamespace)
 	assert.Contains(t, got.Finalizers, targetFinalizer,
 		"a cross-namespace Secret cannot be garbage collected, so it needs a finalizer")
 }
 
 func TestReconcile_GatherNeededCreatesTheJobAndHoldsAtPending(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -381,19 +381,19 @@ func TestReconcile_GatherNeededCreatesTheJobAndHoldsAtPending(t *testing.T) {
 		Name: "sample-gather", Namespace: "default",
 	}, cm), "the Job reads its plan from this ConfigMap")
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhasePending, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhasePending, got.Status.Phase)
 	assert.Equal(t, jobs.Items[0].Name, got.Status.GatherJobName)
 }
 
 func TestReconcile_SucceededGatherProducesTheSecret(t *testing.T) {
-	a := fullArcanum(1, mappingWithGather())
+	a := fullCredentialConfig(1, mappingWithGather())
 	m, c := newManager(a, instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
 	// First pass creates the Job.
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -409,7 +409,7 @@ func TestReconcile_SucceededGatherProducesTheSecret(t *testing.T) {
 		Data:       map[string][]byte{"USERNAME": []byte("app")},
 	}))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	secret := &corev1.Secret{}
@@ -417,18 +417,18 @@ func TestReconcile_SucceededGatherProducesTheSecret(t *testing.T) {
 	assert.Equal(t, []byte("app"), secret.Data["USERNAME"])
 	assert.Equal(t, []byte("postgres-poc-rw"), secret.Data["HOST"])
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 }
 
 // The result ConfigMap is why custos does not need pods/log, so the message
 // has to actually come from it.
 func TestReconcile_FailedGatherSurfacesTheResultMessage(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -440,12 +440,12 @@ func TestReconcile_FailedGatherSurfacesTheResultMessage(t *testing.T) {
 	require.NoError(t, c.Create(ctx, gatherResult("error",
 		`objectRef USERNAME: secrets "postgres-poc-app" not found`)))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseFailed, got.Status.Phase)
 	assert.Contains(t, got.Status.Message, "postgres-poc-app")
 }
 
@@ -453,10 +453,10 @@ func TestReconcile_FailedGatherSurfacesTheResultMessage(t *testing.T) {
 // Job for the old hash has to go, or every spec edit leaves another one
 // behind until the namespace is full of them.
 func TestReconcile_ChangedMappingRemovesTheStaleGatherJob(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -464,16 +464,16 @@ func TestReconcile_ChangedMappingRemovesTheStaleGatherJob(t *testing.T) {
 	require.Len(t, jobs.Items, 1)
 	firstJob := jobs.Items[0].Name
 
-	current := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), current))
+	current := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), current))
 	current.Generation = 2
-	current.Spec.Credentials.ValueMapping["USERNAME"] = arcanav1.ValueSource{
-		Source: arcanav1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
+	current.Spec.Credentials.ValueMapping["USERNAME"] = custosv1.ValueSource{
+		Source: custosv1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
 		Name: "{{.ClaimName}}-app", Key: "user",
 	}
 	require.NoError(t, c.Update(ctx, current))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	require.NoError(t, c.List(ctx, jobs))
@@ -484,47 +484,47 @@ func TestReconcile_ChangedMappingRemovesTheStaleGatherJob(t *testing.T) {
 // Validation runs before anything is created, because an exec is allowed to
 // provision and a spec that can never render must not get that far.
 func TestReconcile_InvalidMappingFailsBeforeCreatingAJob(t *testing.T) {
-	bad := fullArcanum(1, arcanav1.CredentialsSpec{
-		ValueMapping: map[string]arcanav1.ValueSource{
+	bad := fullCredentialConfig(1, custosv1.CredentialsSpec{
+		ValueMapping: map[string]custosv1.ValueSource{
 			"USERNAME": {
-				Source: arcanav1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
+				Source: custosv1.SourceObjectRef, APIVersion: "v1", Kind: "Secret",
 				Name: "pg-app", Key: "username",
 			},
-			"URL": {Source: arcanav1.SourceTemplate, Value: "{{.NOPE}}"},
+			"URL": {Source: custosv1.SourceTemplate, Value: "{{.NOPE}}"},
 		},
 	})
 	m, c := newManager(bad, instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
 	assert.Empty(t, jobs.Items, "an invalid mapping must never reach the gather stage")
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseFailed, got.Status.Phase)
 	assert.Contains(t, got.Status.Message, "NOPE")
 }
 
 // Suspend is the escape hatch for when custos and the cluster disagree. It
 // must not pull a working service's credentials away.
-func TestReconcile_SuspendedArcanumCreatesNoJobAndKeepsItsSecret(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+func TestReconcile_SuspendedCredentialConfigCreatesNoJobAndKeepsItsSecret(t *testing.T) {
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(nil))
 	ctx := context.Background()
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	current := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), current))
+	current := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), current))
 	current.Generation = 2
 	current.Spec.Suspend = ptr.To(true)
 	current.Spec.Credentials = mappingWithGather()
 	require.NoError(t, c.Update(ctx, current))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -535,25 +535,25 @@ func TestReconcile_SuspendedArcanumCreatesNoJobAndKeepsItsSecret(t *testing.T) {
 		"suspending must leave an already written Secret in place")
 }
 
-// The finalizer path: deleting the Arcanum takes the remote Secret with it.
+// The finalizer path: deleting the CredentialConfig takes the remote Secret with it.
 func TestReconcile_DeletionRemovesTheRemoteSecretAndTheFinalizer(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
 
-	current := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), current))
+	current := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), current))
 	require.NoError(t, c.Delete(ctx, current))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	err = c.Get(ctx, targetKey("tenant"), &corev1.Secret{})
-	assert.True(t, apierrors.IsNotFound(err), "the credentials must go with the Arcanum")
+	assert.True(t, apierrors.IsNotFound(err), "the credentials must go with the CredentialConfig")
 
-	err = c.Get(ctx, arcanumKey(), &arcanav1.Arcanum{})
+	err = c.Get(ctx, credentialConfigKey(), &custosv1.CredentialConfig{})
 	assert.True(t, apierrors.IsNotFound(err),
 		"removing the last finalizer lets the API server complete the delete")
 }
@@ -583,10 +583,10 @@ func gatherResult(status, message string) *corev1.ConfigMap {
 // Reporting "left no values" while that message goes unread turns a clear
 // error into a confusing one.
 func TestReconcile_SucceededGatherWithNoValuesSurfacesTheResultMessage(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -594,33 +594,33 @@ func TestReconcile_SucceededGatherWithNoValuesSurfacesTheResultMessage(t *testin
 	require.NoError(t, c.Status().Update(ctx, job))
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseFailed, got.Status.Phase)
 	assert.Contains(t, got.Status.Message, "no ready pod matches app=service")
 }
 
 // With no result ConfigMap there is nothing to read, and the fallback has to
 // say which of the two ways this went wrong actually happened.
 func TestReconcile_SucceededGatherWithNoValuesAndNoResultSaysSo(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
 	job.Status.Succeeded = 1
 	require.NoError(t, c.Status().Update(ctx, job))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 	assert.Contains(t, got.Status.Message, "left no values")
 }
 
@@ -644,10 +644,10 @@ func failGatherJob(t *testing.T, c client.Client, job *batchv1.Job, settledAt ti
 // an attempt rather than an outcome. Reading it as an outcome is how this
 // design silently reverts to the one-shot behaviour it replaces.
 func TestReconcile_AFailedAttemptHoldsAtPendingWithItsReason(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -655,12 +655,12 @@ func TestReconcile_AFailedAttemptHoldsAtPendingWithItsReason(t *testing.T) {
 	require.NoError(t, c.Status().Update(ctx, job))
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhasePending, got.Status.Phase,
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhasePending, got.Status.Phase,
 		"the Job still has attempts left, so this is a wait and not a failure")
 	assert.Contains(t, got.Status.Message, "no ready pod matches app=service",
 		"Pending is more use with the reason on it than without")
@@ -672,25 +672,25 @@ func TestReconcile_AFailedAttemptHoldsAtPendingWithItsReason(t *testing.T) {
 // Once the Job has given up the phase goes red, but the retry is already
 // scheduled. Failed here means "not working right now", not "give up".
 func TestReconcile_AGatherJobThatGaveUpFailsAndSchedulesARetry(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
 	failGatherJob(t, c, job, time.Now())
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
-	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	assert.Positive(t, result.RequeueAfter, "nothing else will ever wake this Arcanum again")
+	assert.Positive(t, result.RequeueAfter, "nothing else will ever wake this CredentialConfig again")
 	assert.LessOrEqual(t, result.RequeueAfter, gatherRetryInterval)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseFailed, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseFailed, got.Status.Phase)
 	assert.Contains(t, got.Status.Message, "no ready pod matches app=service")
 
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{}),
@@ -700,23 +700,23 @@ func TestReconcile_AGatherJobThatGaveUpFailsAndSchedulesARetry(t *testing.T) {
 // A Job spec is immutable and its name is the plan hash, so the only way to run
 // the same plan again is to delete the Job and let the next pass create it.
 func TestReconcile_AGatherJobIsRecreatedAfterTheRetryInterval(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
 	failGatherJob(t, c, job, time.Now().Add(-2*gatherRetryInterval))
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	err = c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})
 	assert.True(t, apierrors.IsNotFound(err), "the Job that gave up has to go before its name is free")
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	again := onlyGatherJob(t, c)
@@ -725,13 +725,13 @@ func TestReconcile_AGatherJobIsRecreatedAfterTheRetryInterval(t *testing.T) {
 }
 
 // The whole reason this exists: everything applied at once, the target pod not
-// Ready, the gather giving up, and the Arcanum reaching Ready anyway once the
+// Ready, the gather giving up, and the CredentialConfig reaching Ready anyway once the
 // pod turns up, with nobody touching anything.
-func TestReconcile_AnArcanumRecoversFromAGatherThatGaveUp(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+func TestReconcile_AnCredentialConfigRecoversFromAGatherThatGaveUp(t *testing.T) {
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -739,9 +739,9 @@ func TestReconcile_AnArcanumRecoversFromAGatherThatGaveUp(t *testing.T) {
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
 	// One pass deletes the Job that gave up, the next creates it again.
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	// This time the service is up, so the retry finds what it came for.
@@ -753,26 +753,26 @@ func TestReconcile_AnArcanumRecoversFromAGatherThatGaveUp(t *testing.T) {
 		Data:       map[string][]byte{"USERNAME": []byte("app")},
 	}))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase,
-		"Failed is not terminal: an Arcanum has to be able to recover on its own")
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase,
+		"Failed is not terminal: an CredentialConfig has to be able to recover on its own")
 
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
 }
 
 // Reconcile returns early when nothing about the status changed, and a retry
 // that is pending changes nothing about the status. Dropping the requeue on
-// that path leaves the Arcanum at Failed forever, which is the bug this task
+// that path leaves the CredentialConfig at Failed forever, which is the bug this task
 // removes, reintroduced one layer up.
 func TestReconcile_ASettledFailureStillAsksForItsRetry(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -780,11 +780,11 @@ func TestReconcile_ASettledFailureStillAsksForItsRetry(t *testing.T) {
 	require.NoError(t, c.Create(ctx, gatherResult("error", "exec PASSWORD: no ready pod matches app=service")))
 
 	// The first pass writes the Failed status.
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	// The second decides exactly the same thing and writes nothing.
-	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	result, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	assert.Positive(t, result.RequeueAfter)
@@ -793,10 +793,10 @@ func TestReconcile_ASettledFailureStillAsksForItsRetry(t *testing.T) {
 // Deleting the gathered Secret by hand is the same shape of problem as a
 // gather that failed, and it heals the same way.
 func TestReconcile_AGatherThatLeftNoValuesIsRetried(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -804,7 +804,7 @@ func TestReconcile_AGatherThatLeftNoValuesIsRetried(t *testing.T) {
 	job.Status.CompletionTime = ptr.To(metav1.NewTime(time.Now().Add(-2 * gatherRetryInterval)))
 	require.NoError(t, c.Status().Update(ctx, job))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	err = c.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})
@@ -813,11 +813,11 @@ func TestReconcile_AGatherThatLeftNoValuesIsRetried(t *testing.T) {
 
 // A settled gather is read back from the gathered Secret, never from the Job,
 // so once the credentials are written the Job and its pods are clutter.
-func TestReconcile_ReadyArcanumCleansUpItsGatherJob(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+func TestReconcile_ReadyCredentialConfigCleansUpItsGatherJob(t *testing.T) {
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	job := onlyGatherJob(t, c)
@@ -828,12 +828,12 @@ func TestReconcile_ReadyArcanumCleansUpItsGatherJob(t *testing.T) {
 		Data:       map[string][]byte{"USERNAME": []byte("app")},
 	}))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	require.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	require.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
@@ -843,53 +843,53 @@ func TestReconcile_ReadyArcanumCleansUpItsGatherJob(t *testing.T) {
 		"status must not point at a Job that is no longer there")
 }
 
-// The gathered Secret is owned by the Arcanum rather than the Job, so cleaning
+// The gathered Secret is owned by the CredentialConfig rather than the Job, so cleaning
 // up the Job must not take the values with it.
 func TestReconcile_CleanupLeavesTheGatheredValues(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
 	settleAGather(t, m, c)
 
 	// A third pass, with the Job gone. It has to stay Ready off the gathered
 	// Secret alone, and must not decide the missing Job means gather again.
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
 	require.NoError(t, c.List(ctx, jobs))
 	assert.Empty(t, jobs.Items, "a settled gather must not be started again just because its Job is gone")
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 	require.NoError(t, c.Get(ctx, targetKey("tenant"), &corev1.Secret{}))
 }
 
 // emptyTheMapping is the helm upgrade that renders valueMapping empty on an
-// Arcanum a previous pass already settled. It goes through the client so the
+// CredentialConfig a previous pass already settled. It goes through the client so the
 // controller's own applies stay the only thing that owns the status, which is
 // what decides whether a later apply can clear a field.
 func emptyTheMapping(t *testing.T, c client.Client) {
 	t.Helper()
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(context.Background(), arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(context.Background(), credentialConfigKey(), got))
 
-	got.Spec.Credentials = arcanav1.CredentialsSpec{}
+	got.Spec.Credentials = custosv1.CredentialsSpec{}
 	require.NoError(t, c.Update(context.Background(), got))
 }
 
-// An Arcanum with no mapping is documented as legal and as producing an empty
+// An CredentialConfig with no mapping is documented as legal and as producing an empty
 // Secret, which is how a chart declares the Secret before it knows what goes
 // in it. Emptying the mapping on an upgrade therefore has to empty the Secret
 // rather than delete it: consumers mount it by name, and a name that stops
 // existing takes their pods down with it.
 func TestReconcile_EmptyMappingEmptiesTheSecret(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	secret := &corev1.Secret{}
@@ -898,7 +898,7 @@ func TestReconcile_EmptyMappingEmptiesTheSecret(t *testing.T) {
 
 	emptyTheMapping(t, c)
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	got := &corev1.Secret{}
@@ -913,21 +913,21 @@ func TestReconcile_EmptyMappingEmptiesTheSecret(t *testing.T) {
 // field still matches, the equality check returns early and no later pass
 // corrects it.
 func TestReconcile_EmptyMappingKeepsTheRecordedSecret(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithoutGather()), instanceNamespace(nil))
+	m, c := newManager(fullCredentialConfig(1, mappingWithoutGather()), instanceNamespace(nil))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	emptyTheMapping(t, c)
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 
-	assert.Equal(t, arcanav1.ArcanumPhaseReady, got.Status.Phase)
+	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
 	assert.Equal(t, "postgres-poc-credentials", got.Status.SecretName)
 	assert.Equal(t, "default", got.Status.SecretNamespace)
 
@@ -939,23 +939,23 @@ func TestReconcile_EmptyMappingKeepsTheRecordedSecret(t *testing.T) {
 // outstanding has to go rather than keep running against a mapping that no
 // longer asks for it.
 func TestReconcile_EmptyMappingLeavesNoGatherBehind(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	recorded := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), recorded))
+	recorded := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), recorded))
 	require.NotEmpty(t, recorded.Status.GatherJobName, "the first pass has to leave a gather outstanding")
 
 	emptyTheMapping(t, c)
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
-	got := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), got))
+	got := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 	assert.Empty(t, got.Status.GatherJobName,
 		"an empty mapping needs no gather, so none may stay recorded")
 
@@ -966,12 +966,12 @@ func TestReconcile_EmptyMappingLeavesNoGatherBehind(t *testing.T) {
 
 // settleAGather runs the two passes a gather takes and returns the plan hash
 // off the Job name, which is what names the Job a later pass has to find.
-func settleAGather(t *testing.T, m *ArcanumManager, c client.Client) string {
+func settleAGather(t *testing.T, m *CredentialConfigManager, c client.Client) string {
 	t.Helper()
 
 	ctx := context.Background()
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}
@@ -992,12 +992,12 @@ func settleAGather(t *testing.T, m *ArcanumManager, c client.Client) string {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sample-gathered",
 			Namespace: "default",
-			Labels:    map[string]string{gather.ArcanumNameLabel: "sample"},
+			Labels:    map[string]string{gather.CredentialConfigNameLabel: "sample"},
 		},
 		Data: map[string][]byte{"USERNAME": []byte("app")},
 	}))
 
-	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err = m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	return hash
@@ -1006,20 +1006,20 @@ func settleAGather(t *testing.T, m *ArcanumManager, c client.Client) string {
 // A gather Job that turns up after the recorded name was cleared still has to
 // be collected. The name is cleared by the very pass that succeeds, so a
 // cleanup gated on it left that Job in the namespace for the life of the
-// Arcanum, with only the owner reference to take it away.
+// CredentialConfig, with only the owner reference to take it away.
 func TestReconcile_CollectsAGatherJobTheStatusDoesNotRecord(t *testing.T) {
-	m, c := newManager(fullArcanum(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
+	m, c := newManager(fullCredentialConfig(1, mappingWithGather()), instanceNamespace(chrysoAnnotations()))
 	ctx := context.Background()
 
 	hash := settleAGather(t, m, c)
 
-	settled := &arcanav1.Arcanum{}
-	require.NoError(t, c.Get(ctx, arcanumKey(), settled))
-	require.Equal(t, arcanav1.ArcanumPhaseReady, settled.Status.Phase)
+	settled := &custosv1.CredentialConfig{}
+	require.NoError(t, c.Get(ctx, credentialConfigKey(), settled))
+	require.Equal(t, custosv1.CredentialConfigPhaseReady, settled.Status.Phase)
 	require.Empty(t, settled.Status.GatherJobName,
 		"the successful pass clears the name, which is what strands the next Job")
 
-	// What a reconcile against a stale Arcanum leaves behind: a Job nothing
+	// What a reconcile against a stale CredentialConfig leaves behind: a Job nothing
 	// records.
 	require.NoError(t, c.Create(ctx, &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1029,7 +1029,7 @@ func TestReconcile_CollectsAGatherJobTheStatusDoesNotRecord(t *testing.T) {
 		},
 	}))
 
-	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: arcanumKey()})
+	_, err := m.Reconcile(ctx, ctrl.Request{NamespacedName: credentialConfigKey()})
 	require.NoError(t, err)
 
 	jobs := &batchv1.JobList{}

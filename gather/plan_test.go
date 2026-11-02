@@ -83,7 +83,7 @@ func TestPlanHash_IsEightLowercaseHexCharacters(t *testing.T) {
 
 // TestPlanHash_IsStableAcrossRuns only proves the label map does not make the
 // hash move. Dropping the label loop entirely would pass it just as well, and
-// then two Arcana pointing at different Pods would share one Job name.
+// then two CredentialConfigs pointing at different Pods would share one Job name.
 func TestPlanHash_ChangesWhenAPodSelectorLabelChanges(t *testing.T) {
 	changed := samplePlan()
 	changed.Entries[1].PodSelector.MatchLabels["role"] = "replica"

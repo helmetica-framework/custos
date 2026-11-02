@@ -14,25 +14,25 @@ func TestSchemeRegistration(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, AddToScheme(scheme))
 
-	assert.True(t, scheme.Recognizes(GroupVersion.WithKind("Arcanum")))
-	assert.True(t, scheme.Recognizes(GroupVersion.WithKind("ArcanumList")))
-	assert.Equal(t, "arcana.helmetica.io", GroupVersion.Group)
+	assert.True(t, scheme.Recognizes(GroupVersion.WithKind("CredentialConfig")))
+	assert.True(t, scheme.Recognizes(GroupVersion.WithKind("CredentialConfigList")))
+	assert.Equal(t, "custos.helmetica.io", GroupVersion.Group)
 	assert.Equal(t, "v1", GroupVersion.Version)
 }
 
-func TestArcanumDeepCopy(t *testing.T) {
-	orig := &Arcanum{
+func TestCredentialConfigDeepCopy(t *testing.T) {
+	orig := &CredentialConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "sample",
 			Namespace:  "default",
 			Generation: 3,
 			Labels:     map[string]string{"key": "value"},
 		},
-		Spec: ArcanumSpec{
+		Spec: CredentialConfigSpec{
 			Suspend: ptr.To(true),
 		},
-		Status: ArcanumStatus{
-			Phase:              ArcanumPhaseReady,
+		Status: CredentialConfigStatus{
+			Phase:              CredentialConfigPhaseReady,
 			ObservedGeneration: 3,
 		},
 	}
@@ -47,10 +47,10 @@ func TestArcanumDeepCopy(t *testing.T) {
 	assert.True(t, *orig.Spec.Suspend, "deepcopy must not share the suspend pointer")
 }
 
-func TestArcanumDeepCopy_ValueMapping(t *testing.T) {
-	orig := &Arcanum{
+func TestCredentialConfigDeepCopy_ValueMapping(t *testing.T) {
+	orig := &CredentialConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "instance"},
-		Spec: ArcanumSpec{
+		Spec: CredentialConfigSpec{
 			Target: TargetSpec{Name: "postgres-poc-credentials"},
 			Credentials: CredentialsSpec{
 				ValueMapping: map[string]ValueSource{
@@ -91,10 +91,10 @@ func TestArcanumDeepCopy_ValueMapping(t *testing.T) {
 		"deepcopy must not share the command slice")
 }
 
-func TestArcanumStatus_CarriesGatherState(t *testing.T) {
-	orig := &Arcanum{
-		Status: ArcanumStatus{
-			Phase:           ArcanumPhaseReady,
+func TestCredentialConfigStatus_CarriesGatherState(t *testing.T) {
+	orig := &CredentialConfig{
+		Status: CredentialConfigStatus{
+			Phase:           CredentialConfigPhaseReady,
 			GatheredHash:    "a1b2c3d4",
 			GatherJobName:   "credentials-gather-a1b2c3d4",
 			SecretName:      "postgres-poc-credentials",
@@ -106,12 +106,12 @@ func TestArcanumStatus_CarriesGatherState(t *testing.T) {
 	assert.Equal(t, orig.Status, cp.Status)
 }
 
-func TestArcanumListDeepCopy(t *testing.T) {
-	orig := &ArcanumList{
-		Items: []Arcanum{
+func TestCredentialConfigListDeepCopy(t *testing.T) {
+	orig := &CredentialConfigList{
+		Items: []CredentialConfig{
 			{
 				ObjectMeta: metav1.ObjectMeta{Name: "one"},
-				Spec:       ArcanumSpec{Suspend: ptr.To(true)},
+				Spec:       CredentialConfigSpec{Suspend: ptr.To(true)},
 			},
 		},
 	}

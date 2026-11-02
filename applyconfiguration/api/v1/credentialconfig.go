@@ -3,84 +3,39 @@
 package v1
 
 import (
-	apiv1 "github.com/helmetica-framework/custos/api/v1"
-	internal "github.com/helmetica-framework/custos/applyconfiguration/internal"
 	apismetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
-	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// ArcanumApplyConfiguration represents a declarative configuration of the Arcanum type for use
+// CredentialConfigApplyConfiguration represents a declarative configuration of the CredentialConfig type for use
 // with apply.
 //
-// Arcanum is the thing custos keeps.
-// The pluralizer would make this "arcanums", so the Latin plural is spelled out.
-type ArcanumApplyConfiguration struct {
+// CredentialConfig is the thing custos keeps.
+type CredentialConfigApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:""`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *ArcanumSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                               *ArcanumStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                                 *CredentialConfigSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                               *CredentialConfigStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// Arcanum constructs a declarative configuration of the Arcanum type for use with
+// CredentialConfig constructs a declarative configuration of the CredentialConfig type for use with
 // apply.
-func Arcanum(name, namespace string) *ArcanumApplyConfiguration {
-	b := &ArcanumApplyConfiguration{}
+func CredentialConfig(name, namespace string) *CredentialConfigApplyConfiguration {
+	b := &CredentialConfigApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("Arcanum")
-	b.WithAPIVersion("arcana.helmetica.io/v1")
+	b.WithKind("CredentialConfig")
+	b.WithAPIVersion("custos.helmetica.io/v1")
 	return b
 }
 
-// ExtractArcanumFrom extracts the applied configuration owned by fieldManager from
-// arcanum for the specified subresource. Pass an empty string for subresource to extract
-// the main resource. Common subresources include "status", "scale", etc.
-// arcanum must be a unmodified Arcanum API object that was retrieved from the Kubernetes API.
-// ExtractArcanumFrom provides a way to perform a extract/modify-in-place/apply workflow.
-// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
-// applied if another fieldManager has updated or force applied any of the previously applied fields.
-func ExtractArcanumFrom(arcanum *apiv1.Arcanum, fieldManager string, subresource string) (*ArcanumApplyConfiguration, error) {
-	b := &ArcanumApplyConfiguration{}
-	err := managedfields.ExtractInto(arcanum, internal.Parser().Type("com.github.helmetica-framework.custos.api.v1.Arcanum"), fieldManager, b, subresource)
-	if err != nil {
-		return nil, err
-	}
-	b.WithName(arcanum.Name)
-	b.WithNamespace(arcanum.Namespace)
-
-	b.WithKind("Arcanum")
-	b.WithAPIVersion("arcana.helmetica.io/v1")
-	return b, nil
-}
-
-// ExtractArcanum extracts the applied configuration owned by fieldManager from
-// arcanum. If no managedFields are found in arcanum for fieldManager, a
-// ArcanumApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
-// arcanum must be a unmodified Arcanum API object that was retrieved from the Kubernetes API.
-// ExtractArcanum provides a way to perform a extract/modify-in-place/apply workflow.
-// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
-// applied if another fieldManager has updated or force applied any of the previously applied fields.
-func ExtractArcanum(arcanum *apiv1.Arcanum, fieldManager string) (*ArcanumApplyConfiguration, error) {
-	return ExtractArcanumFrom(arcanum, fieldManager, "")
-}
-
-// ExtractArcanumStatus extracts the applied configuration owned by fieldManager from
-// arcanum for the status subresource.
-func ExtractArcanumStatus(arcanum *apiv1.Arcanum, fieldManager string) (*ArcanumApplyConfiguration, error) {
-	return ExtractArcanumFrom(arcanum, fieldManager, "status")
-}
-
-func (b ArcanumApplyConfiguration) IsApplyConfiguration() {}
+func (b CredentialConfigApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithKind(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithKind(value string) *CredentialConfigApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -88,7 +43,7 @@ func (b *ArcanumApplyConfiguration) WithKind(value string) *ArcanumApplyConfigur
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithAPIVersion(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithAPIVersion(value string) *CredentialConfigApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -96,7 +51,7 @@ func (b *ArcanumApplyConfiguration) WithAPIVersion(value string) *ArcanumApplyCo
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithName(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithName(value string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -105,7 +60,7 @@ func (b *ArcanumApplyConfiguration) WithName(value string) *ArcanumApplyConfigur
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithGenerateName(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithGenerateName(value string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -114,7 +69,7 @@ func (b *ArcanumApplyConfiguration) WithGenerateName(value string) *ArcanumApply
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithNamespace(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithNamespace(value string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -123,7 +78,7 @@ func (b *ArcanumApplyConfiguration) WithNamespace(value string) *ArcanumApplyCon
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithUID(value types.UID) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithUID(value types.UID) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -132,7 +87,7 @@ func (b *ArcanumApplyConfiguration) WithUID(value types.UID) *ArcanumApplyConfig
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithResourceVersion(value string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithResourceVersion(value string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -141,7 +96,7 @@ func (b *ArcanumApplyConfiguration) WithResourceVersion(value string) *ArcanumAp
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithGeneration(value int64) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithGeneration(value int64) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -150,7 +105,7 @@ func (b *ArcanumApplyConfiguration) WithGeneration(value int64) *ArcanumApplyCon
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithCreationTimestamp(value apismetav1.Time) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithCreationTimestamp(value apismetav1.Time) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -159,7 +114,7 @@ func (b *ArcanumApplyConfiguration) WithCreationTimestamp(value apismetav1.Time)
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -168,7 +123,7 @@ func (b *ArcanumApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time)
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -178,7 +133,7 @@ func (b *ArcanumApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) 
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *ArcanumApplyConfiguration) WithLabels(entries map[string]string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithLabels(entries map[string]string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -193,7 +148,7 @@ func (b *ArcanumApplyConfiguration) WithLabels(entries map[string]string) *Arcan
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *ArcanumApplyConfiguration) WithAnnotations(entries map[string]string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithAnnotations(entries map[string]string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -207,7 +162,7 @@ func (b *ArcanumApplyConfiguration) WithAnnotations(entries map[string]string) *
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *ArcanumApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerReferenceApplyConfiguration) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerReferenceApplyConfiguration) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -221,7 +176,7 @@ func (b *ArcanumApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerR
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *ArcanumApplyConfiguration) WithFinalizers(values ...string) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithFinalizers(values ...string) *CredentialConfigApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -229,7 +184,7 @@ func (b *ArcanumApplyConfiguration) WithFinalizers(values ...string) *ArcanumApp
 	return b
 }
 
-func (b *ArcanumApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *CredentialConfigApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &metav1.ObjectMetaApplyConfiguration{}
 	}
@@ -238,7 +193,7 @@ func (b *ArcanumApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithSpec(value *ArcanumSpecApplyConfiguration) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithSpec(value *CredentialConfigSpecApplyConfiguration) *CredentialConfigApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -246,29 +201,29 @@ func (b *ArcanumApplyConfiguration) WithSpec(value *ArcanumSpecApplyConfiguratio
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *ArcanumApplyConfiguration) WithStatus(value *ArcanumStatusApplyConfiguration) *ArcanumApplyConfiguration {
+func (b *CredentialConfigApplyConfiguration) WithStatus(value *CredentialConfigStatusApplyConfiguration) *CredentialConfigApplyConfiguration {
 	b.Status = value
 	return b
 }
 
 // GetKind retrieves the value of the Kind field in the declarative configuration.
-func (b *ArcanumApplyConfiguration) GetKind() *string {
+func (b *CredentialConfigApplyConfiguration) GetKind() *string {
 	return b.TypeMetaApplyConfiguration.Kind
 }
 
 // GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
-func (b *ArcanumApplyConfiguration) GetAPIVersion() *string {
+func (b *CredentialConfigApplyConfiguration) GetAPIVersion() *string {
 	return b.TypeMetaApplyConfiguration.APIVersion
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *ArcanumApplyConfiguration) GetName() *string {
+func (b *CredentialConfigApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }
 
 // GetNamespace retrieves the value of the Namespace field in the declarative configuration.
-func (b *ArcanumApplyConfiguration) GetNamespace() *string {
+func (b *CredentialConfigApplyConfiguration) GetNamespace() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Namespace
 }
