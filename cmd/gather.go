@@ -106,7 +106,7 @@ func runGather(cmd *cobra.Command, _ []string) error {
 		runErr = applyGathered(ctx, c, plan.Namespace, values)
 	}
 
-	if err := gather.WriteResult(ctx, c, plan.Namespace, resultName, credentialConfigOwner(), runErr); err != nil {
+	if err := gather.WriteResult(ctx, c, plan.Namespace, resultName, gatheredLabels(), credentialConfigOwner(), runErr); err != nil {
 		return errors.Join(runErr, err)
 	}
 
@@ -137,7 +137,7 @@ func applyGathered(ctx context.Context, c client.Client, namespace string, value
 	}
 
 	secret := corev1ac.Secret(secretName, namespace).
-		WithLabels(map[string]string{gather.CredentialConfigNameLabel: credentialConfigName}).
+		WithLabels(gatheredLabels()).
 		WithData(dvalues)
 
 	if owner := credentialConfigOwner(); owner != nil {
@@ -151,6 +151,12 @@ func applyGathered(ctx context.Context, c client.Client, namespace string, value
 	}
 
 	return nil
+}
+
+// gatheredLabels is what makes the Job's objects visible to the manager's
+// cache.
+func gatheredLabels() map[string]string {
+	return map[string]string{gather.CredentialConfigNameLabel: credentialConfigName}
 }
 
 // credentialConfigOwner ties what the Job writes to the CredentialConfig, so deleting the

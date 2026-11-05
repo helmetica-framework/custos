@@ -141,7 +141,7 @@ func resultKey() types.NamespacedName {
 func TestWriteResult_SuccessRecordsOK(t *testing.T) {
 	c := newResolver().Client
 
-	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil, nil)
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil, nil, nil)
 
 	require.NoError(t, err)
 
@@ -155,7 +155,7 @@ func TestWriteResult_SuccessRecordsOK(t *testing.T) {
 func TestWriteResult_FailureRecordsTheMessage(t *testing.T) {
 	c := newResolver().Client
 
-	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil,
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil, nil,
 		errors.New(`key "USERNAME": getting Secret "postgres-poc-app": not found`))
 
 	require.NoError(t, err)
@@ -172,8 +172,8 @@ func TestWriteResult_OverwritesAnEarlierResult(t *testing.T) {
 	c := newResolver().Client
 	ctx := context.Background()
 
-	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, errors.New("boom")))
-	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, nil))
+	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, nil, errors.New("boom")))
+	require.NoError(t, WriteResult(ctx, c, testNamespace, resultKey().Name, nil, nil, nil))
 
 	got := &corev1.ConfigMap{}
 	require.NoError(t, c.Get(ctx, resultKey(), got))
@@ -193,7 +193,7 @@ func TestWriteResult_CarriesTheOwnerReference(t *testing.T) {
 		WithUID(types.UID("d6f7a1b2-0000-4000-8000-000000000001")).
 		WithController(true)
 
-	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, owner, nil)
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, nil, owner, nil)
 
 	require.NoError(t, err)
 
@@ -370,4 +370,19 @@ func TestResolve_ExecEntryWaitOverridesTheResolverDefault(t *testing.T) {
 	assert.Contains(t, err.Error(), "no ready pod")
 	assert.Less(t, time.Since(start), time.Minute,
 		"the entry asked for 100ms, so the resolver's hour must not apply")
+}
+
+// The manager's cache only holds ConfigMaps with the credential config-name
+// label. Without it the controller never sees the result.
+func TestWriteResult_CarriesTheLabels(t *testing.T) {
+	c := newResolver().Client
+	labels := map[string]string{CredentialConfigNameLabel: "sample"}
+
+	err := WriteResult(context.Background(), c, testNamespace, resultKey().Name, labels, nil, nil)
+
+	require.NoError(t, err)
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), resultKey(), got))
+	assert.Equal(t, "sample", got.GetLabels()[CredentialConfigNameLabel])
 }

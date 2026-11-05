@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/multierr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -151,8 +152,10 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 	credentialConfigLabelExists, err := labels.NewRequirement(gather.CredentialConfigNameLabel, selection.Exists, nil)
 	if err != nil {
-		return fmt.Errorf("building the secret cache selector: %w", err)
+		return fmt.Errorf("building the cache selector: %w", err)
 	}
+
+	ownedSelector := labels.NewSelector().Add(*credentialConfigLabelExists)
 
 	restConf := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(restConf, ctrl.Options{
@@ -164,12 +167,15 @@ func runController(cmd *cobra.Command, _ []string) error {
 
 		LeaderElectionReleaseOnCancel: true,
 		Cache: cache.Options{
+			// Nothing reads managedFields from the cache. Server-side apply
+			// works without them.
+			DefaultTransform: cache.TransformStripManagedFields(),
+			// Caching every Secret, Job and ConfigMap in the cluster is a lot
+			// of memory for nothing. Custos only ever reads the ones it stamped.
 			ByObject: map[client.Object]cache.ByObject{
-				// Caching every Secret in the cluster is a lot of memory for
-				// nothing. Custos only ever watches Secrets it stamped.
-				&corev1.Secret{}: {
-					Label: labels.SelectorFromSet(labels.Set{}).Add(*credentialConfigLabelExists),
-				},
+				&corev1.Secret{}:    {Label: ownedSelector},
+				&corev1.ConfigMap{}: {Label: ownedSelector},
+				&batchv1.Job{}:      {Label: ownedSelector},
 			},
 		},
 	})
