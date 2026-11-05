@@ -52,6 +52,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: GOMEMLIMIT
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
         image: ghcr.io/helmetica-framework/custos:latest
         name: manager
         securityContext:

@@ -282,6 +282,7 @@ func WriteResult(
 	ctx context.Context,
 	c client.Client,
 	namespace, name string,
+	labels map[string]string,
 	owner *metav1ac.OwnerReferenceApplyConfiguration,
 	runErr error,
 ) error {
@@ -291,6 +292,7 @@ func WriteResult(
 	}
 
 	cm := corev1ac.ConfigMap(name, namespace).
+		WithLabels(labels).
 		WithData(map[string]string{
 			ResultStatusKey:  status,
 			ResultMessageKey: message,
