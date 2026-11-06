@@ -9,9 +9,13 @@ package v1
 // whether the CredentialConfig's own namespace carries chryso's claim annotation, so a
 // reagent chart works both under chrysopoeia and under a plain helm install.
 type TargetSpecApplyConfiguration struct {
-	// Name is the Secret's name in whichever namespace the placement rule
-	// picks.
-	Name *string `json:"name,omitempty"`
+	// Prefix starts the Secret's name. The name is always the prefix plus a
+	// hash of the claim's group and kind, so a redis and a postgres claim
+	// sharing a name cannot fight over one Secret, and no chart can pick a
+	// name that clashes. Left empty, the prefix is the claim name, or the
+	// CredentialConfig's own name when there is no claim. The name in use is
+	// recorded in status.secretName.
+	Prefix *string `json:"prefix,omitempty"`
 }
 
 // TargetSpecApplyConfiguration constructs a declarative configuration of the TargetSpec type for use with
@@ -20,10 +24,10 @@ func TargetSpec() *TargetSpecApplyConfiguration {
 	return &TargetSpecApplyConfiguration{}
 }
 
-// WithName sets the Name field in the declarative configuration to the given value
+// WithPrefix sets the Prefix field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Name field is set to the value of the last call.
-func (b *TargetSpecApplyConfiguration) WithName(value string) *TargetSpecApplyConfiguration {
-	b.Name = &value
+// If called multiple times, the Prefix field is set to the value of the last call.
+func (b *TargetSpecApplyConfiguration) WithPrefix(value string) *TargetSpecApplyConfiguration {
+	b.Prefix = &value
 	return b
 }

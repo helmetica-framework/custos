@@ -119,6 +119,13 @@ author pick would let one tenant write into another's namespace.
 A cross-namespace Secret cannot carry an owner reference, so custos holds a
 finalizer and removes the Secret itself when the credential config goes.
 
+The name is not settable either. It is `<prefix>-<hash>`, where the hash is the
+first 8 hex characters of `sha256(<claim group>/<claim kind>)`, so a redis and
+a postgres claim both called `example` get different Secrets. The prefix
+defaults to the claim name and can be changed with `spec.target.prefix`.
+Without a claim, the CredentialConfig's own name and kind stand in. The name
+in use is recorded in `status.secretName`.
+
 Custos never adopts a Secret it did not create. If the target name is already
 taken by something without its labels, the credential config goes `Failed` and the
 existing Secret is left exactly as it was.
