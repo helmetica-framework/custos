@@ -12,8 +12,8 @@ type CredentialConfigSpecApplyConfiguration struct {
 	// custos leaves everything it owns untouched, which is the escape hatch
 	// when the controller and the cluster disagree.
 	Suspend *bool `json:"suspend,omitempty"`
-	// Target names the Secret. It is required because a Secret custos cannot
-	// name is a Secret nobody can consume.
+	// Target shapes the Secret's name. Left empty, custos derives the whole
+	// name, see TargetSpec.Prefix.
 	Target *TargetSpecApplyConfiguration `json:"target,omitempty"`
 	// Credentials holds the value mapping. A credential config with none is legal and
 	// produces an empty Secret, which is how a chart can declare the Secret

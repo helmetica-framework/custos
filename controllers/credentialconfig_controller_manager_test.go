@@ -43,12 +43,6 @@ func credentialConfig(generation int64) *custosv1.CredentialConfig {
 			Generation: generation,
 			UID:        credentialConfigUID,
 		},
-		// The target is required by the CRD, so an CredentialConfig without one is not
-		// a thing a cluster can hold. Every fixture carries it, and the ones
-		// that care about the name override it.
-		Spec: custosv1.CredentialConfigSpec{
-			Target: custosv1.TargetSpec{Name: "postgres-poc-credentials"},
-		},
 	}
 }
 
@@ -305,7 +299,6 @@ func mappingWithGather() custosv1.CredentialsSpec {
 
 func fullCredentialConfig(generation int64, creds custosv1.CredentialsSpec) *custosv1.CredentialConfig {
 	a := credentialConfig(generation)
-	a.Spec.Target = custosv1.TargetSpec{Name: "postgres-poc-credentials"}
 	a.Spec.Credentials = creds
 	return a
 }
@@ -928,7 +921,7 @@ func TestReconcile_EmptyMappingKeepsTheRecordedSecret(t *testing.T) {
 	require.NoError(t, c.Get(ctx, credentialConfigKey(), got))
 
 	assert.Equal(t, custosv1.CredentialConfigPhaseReady, got.Status.Phase)
-	assert.Equal(t, "postgres-poc-credentials", got.Status.SecretName)
+	assert.Equal(t, targetKey("default").Name, got.Status.SecretName)
 	assert.Equal(t, "default", got.Status.SecretNamespace)
 
 	require.NoError(t, c.Get(ctx, secretKey(got.Status.SecretNamespace, got.Status.SecretName), &corev1.Secret{}),

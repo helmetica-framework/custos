@@ -21,10 +21,10 @@ type CredentialConfigSpec struct {
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
 
-	// Target names the Secret. It is required because a Secret custos cannot
-	// name is a Secret nobody can consume.
-	// +required
-	Target TargetSpec `json:"target"`
+	// Target shapes the Secret's name. Left empty, custos derives the whole
+	// name, see TargetSpec.Prefix.
+	// +optional
+	Target TargetSpec `json:"target,omitempty"`
 
 	// Credentials holds the value mapping. A credential config with none is legal and
 	// produces an empty Secret, which is how a chart can declare the Secret
@@ -37,11 +37,15 @@ type CredentialConfigSpec struct {
 // whether the CredentialConfig's own namespace carries chryso's claim annotation, so a
 // reagent chart works both under chrysopoeia and under a plain helm install.
 type TargetSpec struct {
-	// Name is the Secret's name in whichever namespace the placement rule
-	// picks.
+	// Prefix starts the Secret's name. The name is always the prefix plus a
+	// hash of the claim's group and kind, so a redis and a postgres claim
+	// sharing a name cannot fight over one Secret, and no chart can pick a
+	// name that clashes. Left empty, the prefix is the claim name, or the
+	// CredentialConfig's own name when there is no claim. The name in use is
+	// recorded in status.secretName.
 	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
+	// +optional
+	Prefix string `json:"prefix,omitempty"`
 }
 
 // CredentialsSpec holds the mapping. Every entry becomes a key in the target
