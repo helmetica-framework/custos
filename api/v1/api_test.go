@@ -51,7 +51,7 @@ func TestCredentialConfigDeepCopy_ValueMapping(t *testing.T) {
 	orig := &CredentialConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "instance"},
 		Spec: CredentialConfigSpec{
-			Target: TargetSpec{Name: "postgres-poc-credentials"},
+			Target: TargetSpec{Prefix: "postgres-poc"},
 			Credentials: CredentialsSpec{
 				ValueMapping: map[string]ValueSource{
 					"HOST": {Source: SourceConst, Value: "postgres-poc-rw"},

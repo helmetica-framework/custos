@@ -235,14 +235,19 @@ func (r *CredentialConfigManager) desiredPhase(ctx context.Context, credentialCo
 
 	ns := targetNamespace(md, hasClaim)
 
-	if err := r.applyTargetSecret(ctx, credentialConfig, ns, !hasClaim, rendered); err != nil {
+	name, err := targetSecretName(credentialConfig, md, hasClaim)
+	if err != nil {
+		return failedPhase(want, err), nil
+	}
+
+	if err := r.applyTargetSecret(ctx, credentialConfig, ns, name, !hasClaim, rendered); err != nil {
 		log.Info("target secret was not written", "namespace", ns, "reason", err.Error())
 
 		return failedPhase(want, err), nil
 	}
 
 	log.V(1).Info("credentials applied",
-		"namespace", ns, "name", credentialConfig.Spec.Target.Name, "keys", len(rendered))
+		"namespace", ns, "name", name, "keys", len(rendered))
 
 	// Failing to clean up does not un-write the Secret, so it is reported and
 	// tried again next pass rather than losing the Ready this pass earned.
@@ -254,7 +259,7 @@ func (r *CredentialConfigManager) desiredPhase(ctx context.Context, credentialCo
 
 	want.Phase = custosv1.CredentialConfigPhaseReady
 	want.Message = credentialsAppliedMessage
-	want.SecretName = credentialConfig.Spec.Target.Name
+	want.SecretName = name
 	want.SecretNamespace = ns
 
 	return want, nil

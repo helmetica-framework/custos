@@ -2,11 +2,13 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/utils/ptr"
@@ -49,6 +51,37 @@ func formatData(data map[string]string) map[string][]byte {
 	return upper
 }
 
+// targetSecretName is a prefix plus a hash of the claim's group and kind, so
+// two claims sharing a name, say a redis and a postgres, land in different
+// Secrets in the claim namespace. There is deliberately no way to name the
+// Secret outright: a hand-picked name is exactly what clashes.
+//
+// The hash covers group and kind but not version: a version bump renaming the
+// Secret would break every consumer mounting it.
+//
+// Without a claim there is no claim kind, so the CredentialConfig's own stands
+// in. The rule stays one rule, and a prefix still cannot become a whole name.
+func targetSecretName(credentialConfig *custosv1.CredentialConfig, md metadata, hasClaim bool) (string, error) {
+	prefix, group, kind := credentialConfig.GetName(), custosv1.GroupVersion.Group, "CredentialConfig"
+
+	if hasClaim {
+		gv, err := schema.ParseGroupVersion(md.ClaimAPIVersion)
+		if err != nil {
+			return "", fmt.Errorf("parsing claim groupVersion: %w", err)
+		}
+
+		prefix, group, kind = md.ClaimName, gv.Group, md.ClaimKind
+	}
+
+	if p := credentialConfig.Spec.Target.Prefix; p != "" {
+		prefix = p
+	}
+
+	sum := sha256.Sum256([]byte(group + "/" + kind))
+
+	return derivedName(prefix, fmt.Sprintf("%x", sum[:4])), nil
+}
+
 // applyTargetSecret writes the credentials. local says the target is the
 // CredentialConfig's own namespace, which is the only case where an owner reference is
 // possible: a reference across namespaces is not resolvable, and the garbage
@@ -56,12 +89,10 @@ func formatData(data map[string]string) map[string][]byte {
 func (r *CredentialConfigManager) applyTargetSecret(
 	ctx context.Context,
 	credentialConfig *custosv1.CredentialConfig,
-	ns string,
+	ns, name string,
 	local bool,
 	data map[string]string,
 ) error {
-	name := credentialConfig.Spec.Target.Name
-
 	existing := &corev1.Secret{}
 
 	// Uncached on purpose. The manager cache holds only Secrets carrying
