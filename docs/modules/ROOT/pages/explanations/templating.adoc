@@ -1,0 +1,18 @@
+= Templating
+
+Two layers, in this order.
+
+*Metadata*, available in `name` and in `command` arguments, and to
+templates. Six names, and nothing else:
+
+`ClaimName`, `ClaimNamespace`, `ClaimKind`, `ClaimAPIVersion`,
+`InstanceNamespace`, `CredentialConfigName`.
+
+So `name: "{{.ClaimName}}-app"` points an `objectRef` at a Secret whose name
+chryso derived from the claim.
+
+*Templates*, which see the metadata and every other mapping key. Custos
+orders them by what they reference, so a template can be built on another
+template. A cycle or a reference to a name that does not exist is rejected
+before anything is created. A spec that could never render would otherwise
+start a Job, fail, and be started again every quarter hour forever.

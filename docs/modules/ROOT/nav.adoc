@@ -1,0 +1,16 @@
+* xref:index.adoc[Overview]
+
+.Explanations
+* xref:explanations/value-mapping.adoc[The value mapping]
+* xref:explanations/templating.adoc[Templating]
+* xref:explanations/where-the-secret-lands.adoc[Where the Secret lands]
+* xref:explanations/gathering.adoc[When a gather runs]
+* xref:explanations/architecture.adoc[explanations/architecture.adoc]
+* xref:explanations/code-structure.adoc[Code structure]
+
+.How-tos
+* xref:how-tos/install.adoc[Install and try it]
+* xref:how-tos/develop.adoc[how-tos/develop.adoc]
+
+.References
+* xref:references/configuration.adoc[references/configuration.adoc]
