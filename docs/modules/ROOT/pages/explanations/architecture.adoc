@@ -1,0 +1,3 @@
+= Architecture
+
+TODO: how it works: reconcile flow, owned resources.

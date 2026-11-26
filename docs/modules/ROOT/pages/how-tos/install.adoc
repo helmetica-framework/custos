@@ -1,0 +1,29 @@
+= Install and try it
+
+Against a kind (or any) cluster:
+
+[source,bash]
+----
+kubectl apply -k config/crd
+just run          # in a second terminal
+kubectl apply -k config/samples
+kubectl get credentialconfigs -w   # PHASE -> Ready
+kubectl get secret sample-credentials -o jsonpath='{.data.URL}' | base64 -d
+----
+
+The sample builds `postgres://sample-rw:5432/sample` out of two constants and
+a template, which needs no cluster access at all and settles in one pass.
+
+Set `spec.suspend: true` to pause it. A suspended credential config holds at `Pending`
+and custos leaves everything it owns alone, including a Secret it has already
+written, which is the escape hatch when the controller and the cluster
+disagree. Clearing the field releases it.
+
+*`config/default` deploys RBAC and the manager, but not the CRDs.* Install
+the CRDs separately from `config/crd` first:
+
+[source,bash]
+----
+kubectl apply -k config/crd
+kubectl apply -k config/default
+----

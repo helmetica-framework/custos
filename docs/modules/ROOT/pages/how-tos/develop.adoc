@@ -1,0 +1,12 @@
+= Develop
+
+[source,bash]
+----
+just build          # generators, checks and the binary
+just test           # unit and envtest integration tests
+just build-docker   # container image
+just run            # against the cluster in your KUBECONFIG
+just docs           # build these docs, fails on warnings
+----
+
+xref:how-tos/install.adoc[Install and try it] shows how to try your build with the samples.

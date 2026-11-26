@@ -1,0 +1,72 @@
+= The value mapping
+
+`spec.credentials.valueMapping` is keyed by the name the value gets in the
+Secret. Consumers read those names, so they are the chart author's to choose
+and are never derived from wherever the value happened to come from.
+
+Those names are uppercased on the way into the Secret, because a credentials
+Secret is usually loaded as environment variables. A mapping key of `host`
+becomes `HOST`. Templates still refer to the key as written, so
+`{{.host}}` is what reads it. Two keys that differ only in case would land on
+one, so an CredentialConfig carrying both is rejected before anything is created.
+
+[cols="1,1,1",options="header"]
+|===
+|Source |Reads |Resolved by
+
+|`const`
+|`value`, literally.
+|Custos.
+
+|`template`
+|`value` as a Go template over the other keys.
+|Custos, after its dependencies.
+
+|`claimParam`
+|`path`, a JSONPath into the claim CR.
+|Custos, through an uncached read.
+
+|`objectRef`
+|`key` or `path` of the `kind`/`name` object in the instance namespace.
+|The gather Job.
+
+|`exec`
+|stdout of `command` in a pod matching `podSelector`.
+|The gather Job.
+|===
+
+The last two are why there is a Job. Reading arbitrary kinds and running
+commands in pods needs permissions custos itself must not hold, so it borrows
+`instance-admin`, the ServiceAccount chrysopoeia already binds to `admin`
+inside the instance namespace.
+
+An `exec` waits for a ready pod before it gives up, which covers the usual case
+of the service still starting. Thirty seconds by default, or set `podWait` on
+the entry for something slower:
+
+[source,yaml]
+----
+DATABASE:
+  source: exec
+  podSelector:
+    matchLabels:
+      app: postgres
+  command: ["psql", "-tAc", "select current_database()"]
+  podWait: 2m
+----
+
+`podWait` is part of the plan, so changing it re-runs a gather that had already
+settled. Only an `exec` may carry one; the CRD rejects it on any other source.
+
+`container` is optional too. Left empty it follows the pod's
+`kubectl.kubernetes.io/default-container` annotation, then its first container.
+The API server only defaults that itself for a pod with exactly one container,
+so anything with a sidecar needs the choice made for it.
+
+*An `exec` command must be idempotent*: safe to run any number of times, and
+returning the same value each time. A gather is retried until it succeeds, so a
+command that mints a fresh password per run would rewrite the credentials under
+consumers that have already read them. Provisioning is still fine, as long as
+it survives repetition: `CREATE USER IF NOT EXISTS` and an `ALTER USER` with a
+value the command can re-derive, or read-existing-else-create. Custos cannot
+check this.

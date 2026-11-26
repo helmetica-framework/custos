@@ -31,9 +31,13 @@ generate: manifests
     {{ CONTROLLER_GEN }} object paths="./..."
     {{ CONTROLLER_GEN }} applyconfiguration paths="./api/..."
 
-# Generate documentation
+# Build the docs as they appear on docs.helmetica.io; fails on warnings
 docs:
-    @echo "Nothing to do yet"
+    GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@v0.1.0 preview .
+
+# Build the docs and serve them on http://localhost:2020
+docs-serve:
+    GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@v0.1.0 preview . --serve :2020
 
 # Run go fmt against code
 fmt:

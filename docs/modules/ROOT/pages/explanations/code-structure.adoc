@@ -1,0 +1,24 @@
+= Code structure
+
+[cols="1,1",options="header"]
+|===
+|Path |What's there
+
+|`api/v1`
+|The `CredentialConfig` type (`custos.helmetica.io/v1`): spec, status, the CEL rules that keep malformed sources out, and generated deepcopy code.
+
+|`cmd`
+|The `custos` CLI (cobra): `controller.go` builds the manager, `gather.go` is the `custos gather` subcommand the Job runs.
+
+|`controllers`
+|`CredentialConfigManager`. `desiredPhase` is the flow; `resolve.go` validates and renders, `gather.go` builds the plan and the Job, `target.go` writes and takes back the Secret.
+
+|`gather`
+|The plan the controller writes and the Job reads, plus the resolution the Job performs. Shared by both sides on purpose: a plan written one way and read another would only show up in a cluster.
+
+|`config`
+|Kustomize tree: `crd` (installed separately), `rbac`, `manager`, `default` (RBAC + manager, no CRDs) and `samples`.
+
+|`test/touchstone`
+|The chainsaw suite. `just touchstone` against a cluster with custos deployed.
+|===
