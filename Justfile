@@ -33,11 +33,11 @@ generate: manifests
 
 # Build the docs as they appear on docs.helmetica.io; fails on warnings
 docs:
-    GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@v0.1.0 preview .
+    GOPROXY=direct GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@main preview .
 
 # Build the docs and serve them on http://localhost:2020
 docs-serve:
-    GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@v0.1.0 preview . --serve :2020
+    GOPROXY=direct GOTOOLCHAIN=auto GOEXPERIMENT=jsonv2 go run github.com/helmetica-framework/rosarium@main preview . --serve :2020
 
 # Run go fmt against code
 fmt:
